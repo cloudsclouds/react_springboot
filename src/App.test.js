@@ -1,8 +1,16 @@
 import { render, screen } from '@testing-library/react';
 import App from './App';
 
-test('renders learn react link', () => {
+test('renders knowledge base route by default', () => {
+  window.history.pushState({}, '', '/');
   render(<App />);
-  const linkElement = screen.getByText(/learn react/i);
-  expect(linkElement).toBeInTheDocument();
+  const titleElement = screen.getByRole('heading', { name: /Knowledge Base/i });
+  expect(titleElement).toBeInTheDocument();
+});
+
+test('renders tiptap online editor page route', () => {
+  window.history.pushState({}, '', '/online-editor');
+  render(<App />);
+  const titleElement = screen.getByRole('heading', { name: /TipTap Editor/i });
+  expect(titleElement).toBeInTheDocument();
 });
