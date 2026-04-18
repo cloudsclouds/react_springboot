@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Source+Sans+3:ital,wght@0,300..900;1,300..900&display=swap");
 
 .online-editor-shell {
   --tt-toolbar-height: 44px;
@@ -11,17 +11,6 @@
   }
 }
 
-.online-editor-shell {
-  font-family: "Inter", sans-serif;
-  color: var(--tt-theme-text);
-  font-optical-sizing: auto;
-  font-weight: 400;
-  font-style: normal;
-  padding: 0;
-  overscroll-behavior-y: none;
-}
-
-.online-editor-shell,
 .simple-editor-wrapper,
 .simple-editor-content {
   width: 100%;
@@ -52,16 +41,17 @@
 }
 
 .simple-editor-wrapper {
-  width: 100%;
-  min-height: clamp(520px, calc(100dvh - 240px), 860px);
+  min-height: 0;
+  height: 100%;
   overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .simple-editor-content {
   max-width: 648px;
   width: 100%;
   margin: 0 auto;
-  height: 100%;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
   flex: 1;

@@ -1,6 +1,25 @@
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
 .app-router-shell {
   min-height: 100dvh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   color: var(--shell-text);
+}
+
+.route-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .project-header {
@@ -59,14 +78,16 @@
 
 .workspace-shell {
   position: relative;
-  min-height: 100dvh;
+  min-height: 0;
+  height: 100%;
+  flex: 1;
   display: grid;
   grid-template-columns: minmax(300px, 332px) minmax(0, 1fr);
   grid-template-rows: auto 1fr;
   align-content: start;
   column-gap: 16px;
   row-gap: 16px;
-  overflow: visible;
+  overflow: auto;
   padding: 28px clamp(16px, 2.8vw, 36px) 40px;
   box-sizing: border-box;
   color: var(--shell-text);
@@ -493,11 +514,22 @@
 }
 
 .online-editor-shell {
-  min-height: calc(100dvh - 70px);
-  padding: clamp(20px, 2.8vw, 36px);
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(14px, 2vw, 20px);
+  overflow: hidden;
+  padding: clamp(18px, 2.8vw, 34px);
   background:
     radial-gradient(circle at top right, var(--shell-glow) 0%, transparent 36%),
     linear-gradient(180deg, var(--shell-bg) 0%, var(--shell-bg-end) 100%);
+}
+
+.online-editor-head {
+  display: grid;
+  gap: 4px;
+  max-width: 68ch;
 }
 
 .online-editor-head h1 {
@@ -512,16 +544,68 @@
   color: var(--shell-muted);
 }
 
-.online-editor-controls {
+.online-editor-layout {
   display: grid;
-  grid-template-columns: auto auto minmax(220px, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  margin-top: 16px;
-  margin-bottom: 12px;
+  grid-template-columns: minmax(250px, 300px) minmax(0, 1fr);
+  gap: clamp(12px, 2vw, 18px);
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
 }
 
-.online-editor-select,
+.online-editor-sidebar,
+.online-editor-main {
+  min-width: 0;
+}
+
+.online-editor-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  max-height: 100%;
+  padding: 16px;
+  border: 1px solid var(--shell-border);
+  border-radius: 20px;
+  background: color-mix(in oklab, var(--shell-surface) 96%, transparent);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.05);
+  overflow: hidden;
+}
+
+.online-editor-sidebar__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.online-editor-sidebar__head h2 {
+  margin: 8px 0 6px;
+  font-size: 1.1rem;
+  line-height: 1.2;
+}
+
+.online-editor-sidebar__head p {
+  margin: 0;
+  color: var(--shell-muted);
+  font-size: 0.88rem;
+}
+
+.online-editor-main {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+}
+
+.online-editor-controls {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
 .online-editor-title-input {
   border: 1px solid var(--shell-border);
   border-radius: 10px;
@@ -533,6 +617,47 @@
 
 .online-editor-title-input {
   min-width: 0;
+}
+
+.online-editor-document-list {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.online-editor-document-item {
+  display: grid;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--shell-border);
+  border-radius: 12px;
+  background: var(--shell-surface);
+  color: var(--shell-text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.online-editor-document-item strong {
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.online-editor-document-item span {
+  font-size: 0.78rem;
+  color: var(--shell-muted);
+}
+
+.online-editor-document-item.is-active {
+  border-color: var(--shell-accent);
+  background: color-mix(in oklab, var(--shell-accent) 10%, var(--shell-surface));
+  color: var(--shell-accent-strong);
 }
 
 .save-status {
@@ -559,8 +684,33 @@
   font-size: 0.9rem;
 }
 
+.online-editor-main .simple-editor-wrapper {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+  border: 1px solid var(--shell-border);
+  border-radius: 20px;
+  background: var(--shell-paper);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+}
+
+.online-editor-main .tiptap-toolbar[data-variant="fixed"] {
+  top: 0;
+  border-bottom-color: var(--shell-border-soft);
+  background: color-mix(in oklab, var(--shell-surface) 94%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.online-editor-main .simple-editor-content {
+  max-width: min(880px, 100%);
+  min-height: 100%;
+}
+
+.online-editor-main .simple-editor-content .tiptap.ProseMirror.simple-editor {
+  padding: clamp(20px, 2.6vw, 34px) clamp(20px, 3vw, 44px) 28vh;
+}
+
 .online-editor-card {
-  margin-top: 18px;
   border: 1px solid var(--shell-border);
   border-radius: 20px;
   background: var(--shell-surface);
@@ -596,9 +746,11 @@
 }
 
 .tiptap-surface {
-  min-height: clamp(520px, calc(100dvh - 240px), 860px);
+  min-height: 520px;
   padding: clamp(16px, 2vw, 24px);
   background: var(--shell-paper);
+  border: 1px solid var(--shell-border);
+  border-radius: 0 0 20px 20px;
 }
 
 .tiptap-editor {
@@ -687,7 +839,7 @@
 
 :root {
   color-scheme: light;
-  --font-body: 'Inter', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --font-body: 'Source Han Sans SC', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
   --shell-bg: #f6f8fc;
   --shell-bg-end: #eef3fb;
   --shell-paper: #ffffff;
@@ -780,6 +932,30 @@
   .online-editor-controls {
     grid-template-columns: 1fr;
     align-items: stretch;
+  }
+
+  .online-editor-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .online-editor-sidebar__head {
+    flex-direction: column;
+  }
+
+  .online-editor-document-list {
+    max-height: 280px;
+  }
+
+  .online-editor-main {
+    flex: none;
+  }
+
+  .online-editor-main .simple-editor-wrapper {
+    min-height: 420px;
+  }
+
+  .online-editor-main .simple-editor-content .tiptap.ProseMirror.simple-editor {
+    padding: 1rem 1.2rem 24vh;
   }
 
   .save-status {

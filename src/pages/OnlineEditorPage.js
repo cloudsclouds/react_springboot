@@ -178,42 +178,62 @@ export default function OnlineEditorPage() {
         <p>支持创建文档与自动保存到 Nest API。</p>
       </header>
 
-      <div className="online-editor-controls">
-        <button type="button" className="theme-toggle" onClick={handleCreateDocument}>
-          + 新建文档
-        </button>
+      <div className="online-editor-layout">
+        <aside className="online-editor-sidebar">
+          <div className="online-editor-sidebar__head">
+            <div>
+              <span className="section-label">文档列表</span>
+              <h2>当前工作区</h2>
+              <p>{documents.length} documents</p>
+            </div>
 
-        <select
-          className="online-editor-select"
-          value={activeDocument.id}
-          onChange={(event) => setActiveDocumentId(event.target.value)}
-        >
-          {documents.map((document) => (
-            <option key={document.id} value={document.id}>
-              {document.title}
-            </option>
-          ))}
-        </select>
+            <button type="button" className="theme-toggle" onClick={handleCreateDocument}>
+              + 新建文档
+            </button>
+          </div>
 
-        <input
-          className="online-editor-title-input"
-          value={activeDocument.title}
-          onChange={handleTitleChange}
-          placeholder="输入文档标题"
-        />
+          <div className="online-editor-document-list" aria-label="文档列表">
+            {documents.map((document) => {
+              const isActive = document.id === activeDocument.id;
 
-        <span className={`save-status save-status--${saveStatus}`}>
-          {saveStatus === 'saving' ? '自动保存中...' : saveStatus === 'saved' ? '已自动保存' : saveStatus === 'error' ? '保存失败' : '未修改'}
-        </span>
+              return (
+                <button
+                  key={document.id}
+                  type="button"
+                  className={`online-editor-document-item ${isActive ? 'is-active' : ''}`}
+                  onClick={() => setActiveDocumentId(document.id)}
+                >
+                  <strong>{document.title}</strong>
+                  <span>{isActive ? '当前编辑' : '点击切换'}</span>
+                </button>
+              );
+            })}
+          </div>
+        </aside>
+
+        <section className="online-editor-main">
+          <div className="online-editor-controls">
+            <input
+              className="online-editor-title-input"
+              value={activeDocument.title}
+              onChange={handleTitleChange}
+              placeholder="输入文档标题"
+            />
+
+            <span className={`save-status save-status--${saveStatus}`}>
+              {saveStatus === 'saving' ? '自动保存中...' : saveStatus === 'saved' ? '已自动保存' : saveStatus === 'error' ? '保存失败' : '未修改'}
+            </span>
+          </div>
+
+          {errorMessage ? <p className="online-editor-error">{errorMessage}</p> : null}
+
+          <SimpleEditor
+            key={activeDocument.id}
+            initialContent={activeDocument.content}
+            onContentChange={handleContentChange}
+          />
+        </section>
       </div>
-
-      {errorMessage ? <p className="online-editor-error">{errorMessage}</p> : null}
-
-      <SimpleEditor
-        key={activeDocument.id}
-        initialContent={activeDocument.content}
-        onContentChange={handleContentChange}
-      />
     </section>
   );
 }

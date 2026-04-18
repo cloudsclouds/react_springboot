@@ -56,11 +56,13 @@ function App() {
           </div>
         </header>
 
-        <Routes>
-          <Route path="/" element={<Navigate to="/knowledge-base" replace />} />
-          <Route path="/knowledge-base" element={<KnowledgeBasePage />} />
-          <Route path="/online-editor" element={<OnlineEditorPage />} />
-        </Routes>
+        <main className="route-content">
+          <Routes>
+            <Route path="/" element={<Navigate to="/knowledge-base" replace />} />
+            <Route path="/knowledge-base" element={<KnowledgeBasePage />} />
+            <Route path="/online-editor" element={<OnlineEditorPage />} />
+          </Routes>
+        </main>
       </div>
     </BrowserRouter>
   );
