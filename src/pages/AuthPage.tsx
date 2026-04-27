@@ -98,17 +98,6 @@ export default function AuthPage() {
       <div className="auth-hero">
         <span className="panel-kicker">Editorial workspace</span>
         <h1>登录与注册</h1>
-
-        <div className="auth-highlights">
-          <article className="auth-highlight-card">
-            <strong>工作台统一入口</strong>
-            <span>文档、AI、知识库、组织、分享都从这里进入。</span>
-          </article>
-          <article className="auth-highlight-card">
-            <strong>桌面感布局</strong>
-            <span>保留纸张、注释与工具栏的秩序感，避免模板式首页。</span>
-          </article>
-        </div>
       </div>
 
       <div className="auth-panel">
@@ -140,13 +129,6 @@ export default function AuthPage() {
             {isSubmitting ? '校验中...' : '进入工作台'}
           </button>
         </form>
-
-        <div className="auth-panel__footer">
-          <p>{message}</p>
-          <Link to="/workspace" className="ghost-link">
-            直接查看工作台布局
-          </Link>
-        </div>
       </div>
     </section>
   );
