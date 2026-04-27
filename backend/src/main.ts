@@ -18,9 +18,9 @@ async function bootstrap() {
     })
   );
 
+  // 启动 NestJS 应用
   await app.listen(3001);
-  // eslint-disable-next-line no-console
-  console.log('Nest API running on http://localhost:3001/api');
+  console.log('NestJS API running on http://localhost:3001/api');
 }
 
 void bootstrap();

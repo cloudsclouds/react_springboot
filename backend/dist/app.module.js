@@ -9,12 +9,13 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.AppModule = void 0;
 const common_1 = require("@nestjs/common");
 const documents_module_1 = require("./documents/documents.module");
+const collaboration_module_1 = require("./collaboration/collaboration.module");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
 exports.AppModule = AppModule = __decorate([
     (0, common_1.Module)({
-        imports: [documents_module_1.DocumentsModule],
+        imports: [documents_module_1.DocumentsModule, collaboration_module_1.CollaborationModule],
     })
 ], AppModule);
 //# sourceMappingURL=app.module.js.map
