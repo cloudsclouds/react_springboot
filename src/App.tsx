@@ -1,6 +1,6 @@
 // @ts-nocheck
-import { useEffect, useState } from 'react';
-import { BrowserRouter, NavLink, Navigate, Route, Routes } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { BrowserRouter, NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import './App.css';
 import AIChatPage from './pages/AIChatPage';
 import AuthPage from './pages/AuthPage';
@@ -28,14 +28,39 @@ function getInitialTheme() {
   return 'light';
 }
 
+function getStoredUserName() {
+  if (typeof window === 'undefined') {
+    return '未登录';
+  }
+
+  try {
+    const storedUser = window.localStorage.getItem('paperdesk-user');
+    if (!storedUser) {
+      return '未登录';
+    }
+
+    const parsedUser = JSON.parse(storedUser);
+    return parsedUser.nickname || parsedUser.email || '未登录';
+  } catch {
+    return '未登录';
+  }
+}
+
 function WorkspaceLayout({ themeMode, onToggleTheme }) {
+  const navigate = useNavigate();
+  const userName = useMemo(getStoredUserName, []);
+
+  const handleLogout = () => {
+    window.localStorage.removeItem('paperdesk-user');
+    navigate('/login', { replace: true });
+  };
+
   return (
     <div className="studio-shell">
       <aside className="studio-sidebar">
         <div className="studio-brand">
           <span className="studio-brand__eyebrow">Phase 1 MVP</span>
           <h1>Paperdesk</h1>
-          <p>像一张整理好的工作桌，把写作、知识和协作入口放在同一层。</p>
         </div>
 
         <nav className="studio-nav" aria-label="Workspace navigation">
@@ -64,32 +89,20 @@ function WorkspaceLayout({ themeMode, onToggleTheme }) {
             <span>链接设置与状态占位</span>
           </NavLink>
         </nav>
-
-        <div className="studio-sidebar__footer">
-          <div className="sidebar-note">
-            <span className="sidebar-note__label">当前阶段</span>
-            <p>先搭骨架，再逐页接业务逻辑和后端数据。</p>
-          </div>
-
-          <button type="button" className="theme-toggle-button" onClick={onToggleTheme}>
-            {themeMode === 'dark' ? '切换到浅色' : '切换到深色'}
-          </button>
-        </div>
       </aside>
 
       <div className="studio-main">
         <header className="studio-topbar">
-          <div>
-            <span className="panel-kicker">Workbench Layout</span>
-            <p className="studio-topbar__copy">第一阶段先验证结构是否顺手，再逐步补交互与数据。</p>
-          </div>
-
           <div className="studio-topbar__meta">
-            <span className="status-pill">{themeMode === 'dark' ? 'Night desk' : 'Paper mode'}</span>
-            <span className="status-pill">Static layout</span>
-            <NavLink to="/login" className="ghost-link">
-              登录页
-            </NavLink>
+            <button type="button" className="studio-topbar__user">
+              {userName}
+            </button>
+            <button type="button" className="theme-toggle-button" onClick={onToggleTheme}>
+              {themeMode === 'dark' ? '切换到浅色' : '切换到深色'}
+            </button>
+            <button type="button" className="ghost-link" onClick={handleLogout}>
+              退出登录
+            </button>
           </div>
         </header>
 

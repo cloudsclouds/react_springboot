@@ -86,7 +86,6 @@ input {
 }
 
 .studio-brand__eyebrow,
-.panel-kicker,
 .metric-card__label,
 .sidebar-note__label,
 .chat-bubble__role {
@@ -111,7 +110,6 @@ input {
 .studio-topbar__copy,
 .metric-card p,
 .timeline-item p,
-.note-panel p,
 .editor-stage__paper p,
 .detail-list span,
 .stack-list__item span,
@@ -164,10 +162,8 @@ input {
 }
 
 .sidebar-note,
-.hero-note-card,
 .metric-card,
 .timeline-item,
-.note-panel,
 .org-card,
 .table-row,
 .chat-bubble,
@@ -180,8 +176,6 @@ input {
 }
 
 .sidebar-note,
-.hero-note-card,
-.note-panel,
 .org-card {
   border-radius: 20px;
   padding: 16px;
@@ -247,8 +241,14 @@ input {
   flex-wrap: wrap;
 }
 
+.studio-topbar__meta {
+  margin-left: auto;
+  justify-content: flex-end;
+}
+
 .status-pill,
 .ghost-link,
+.studio-topbar__user,
 .toolbar-chip,
 .prompt-list span {
   padding: 8px 12px;
@@ -257,9 +257,18 @@ input {
 }
 
 .status-pill,
+.studio-topbar__user,
 .ghost-link {
   border: 1px solid var(--shell-border);
   color: var(--shell-muted);
+}
+
+.studio-topbar__user {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: color-mix(in oklab, var(--shell-surface-strong) 92%, transparent);
 }
 
 .studio-content {
@@ -287,10 +296,6 @@ input {
   letter-spacing: -0.04em;
 }
 
-.hero-note-card {
-  max-width: 320px;
-}
-
 .dashboard-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.3fr) minmax(280px, 1fr);
@@ -304,6 +309,12 @@ input {
 
 .surface-grid--triple {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.dashboard-grid > .panel.surface-grid.surface-grid--triple {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .panel {
@@ -347,7 +358,7 @@ input {
   padding: 16px;
 }
 
-.timeline-list,
+
 .stack-list,
 .detail-list,
 .table-list {
@@ -405,7 +416,6 @@ input {
 .stack-list__item strong,
 .table-row strong,
 .detail-list strong,
-.hero-note-card strong,
 .sidebar-note p,
 .share-stage h3,
 .chat-bubble p {

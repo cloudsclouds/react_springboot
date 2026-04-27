@@ -15,7 +15,6 @@ export default function DocumentsPage() {
         <div>
           <span className="panel-kicker">Documents</span>
           <h2>文档列表与编辑区</h2>
-          <p>先验证三栏结构是否顺手：左侧文档列表，中间编辑画布，右侧放状态和辅助操作。</p>
         </div>
       </header>
 
