@@ -6,10 +6,15 @@
 <mapper namespace="com.example.server_springboot.mapper.UserAccountMapper">
 
   <select id="findByEmail" parameterType="string" resultType="com.example.server_springboot.entity.UserAccount">
-    SELECT id, email, password, nickname
+    SELECT id, username, email, password, nickname
     FROM users
     WHERE email = #{email}
     LIMIT 1
   </select>
+
+  <insert id="insertUser" parameterType="com.example.server_springboot.entity.UserAccount" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO users (username, email, password, nickname)
+    VALUES (#{username}, #{email}, #{password}, #{nickname})
+  </insert>
 
 </mapper>
