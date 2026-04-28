@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.server_springboot.mapper.DocumentMemberMapper">
+
+  <insert id="insertMember" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO document_members (document_id, user_id, role, joined_at)
+    VALUES (#{documentId}, #{userId}, #{role}, NOW())
+  </insert>
+
+  <select id="findByDocumentIdAndUserId" resultType="com.example.server_springboot.entity.DocumentMember">
+    SELECT * FROM document_members WHERE document_id = #{documentId} AND user_id = #{userId}
+  </select>
+
+</mapper>

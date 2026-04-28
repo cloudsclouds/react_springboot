@@ -32,12 +32,13 @@
 2. 前端调用登录接口。
 3. 后端根据邮箱查询用户。
 4. 后端比对密码。
-5. 登录成功后返回用户 ID 与昵称。
-6. 前端将登录信息写入 `localStorage`，用于页面展示与退出登录。
+5. 登录成功后返回用户 ID、昵称及 JWT Token。
+6. 前端将 Token 等登录信息写入 `localStorage`，并在后续接口请求中通过 Header 携带 Bearer Token 进行身份认证。
 
 ### 2.3 当前实现说明
 
-- 前端登录成功后会把用户信息存到 `localStorage` 的 `paperdesk-user`。
+- 前端登录成功后会把 Token 及用户信息存到 `localStorage` 的 `paperdesk-user`。
+- 后端通过 `JwtInterceptor` 统一拦截 `/api/**` 请求（过滤登录和注册接口），解析 Token 获取当前用户身份。
 - 主题色配置存到 `localStorage` 的 `blocknote-theme`。
 - 当前密码校验为明文比对，适合开发阶段；生产环境建议改为 BCrypt 哈希。
 - 注册验证码当前由后端直接返回前端，适合开发调试；生产环境建议替换为邮件发送。
@@ -54,9 +55,7 @@
 - `password`
 - `nickname`
 - `avatar`
-- `status`
 - `created_at`
-- `updated_at`
 
 #### Redis Key 设计
 
@@ -71,6 +70,7 @@
 - Base URL：`http://localhost:8080/api`
 - 请求方式：`POST`
 - 请求头：`Content-Type: application/json`
+- 鉴权方式：请求头中携带 `Authorization: Bearer <token>`
 - 返回格式：统一返回 JSON 对象
 
 ### 3.2 登录接口
@@ -78,7 +78,7 @@
 #### 接口信息
 
 - URL：`POST /api/auth/login`
-- 功能：校验邮箱和密码，返回登录结果
+- 功能：校验邮箱和密码，返回登录结果和 JWT Token
 
 #### 请求参数
 
@@ -103,18 +103,20 @@
 {
   "success": true,
   "message": "登录成功",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5c...",
   "userId": 1,
   "nickname": "Admin"
 }
 ```
 
 
-| 字段     | 类型          | 说明     |
-| -------- | ------------- | -------- |
-| success  | boolean       | 是否成功 |
-| message  | string        | 结果说明 |
-| userId   | number\| null | 用户 ID  |
-| nickname | string\| null | 用户昵称 |
+| 字段     | 类型          | 说明         |
+| -------- | ------------- | ------------ |
+| success  | boolean       | 是否成功     |
+| message  | string        | 结果说明     |
+| token    | string\| null | JWT 认证令牌 |
+| userId   | number\| null | 用户 ID      |
+| nickname | string\| null | 用户昵称     |
 
 #### 失败示例
 
@@ -122,6 +124,7 @@
 {
   "success": false,
   "message": "密码错误",
+  "token": null,
   "userId": null,
   "nickname": null
 }
@@ -241,13 +244,8 @@
 - `getRegisterCode(payload)`
 - `registerUser(payload)`
 
-底层请求封装位于 `src/api/http.ts`，默认基址为：
-
-```text
-http://localhost:8080/api
-```
-
-如果需要切换后端地址，可通过环境变量 `REACT_APP_JAVA_API_BASE_URL` 覆盖。
+底层请求封装位于 `src/api/http.ts`。当本地存在 JWT Token 时，请求拦截器会自动加上 Header：
+`Authorization: Bearer <token>`
 
 ### 4.2 登录后的前端状态
 
@@ -255,6 +253,7 @@ http://localhost:8080/api
 
 ```json
 {
+  "token": "eyJhb...",
   "userId": 1,
   "nickname": "Admin",
   "email": "admin@test.com"
@@ -276,6 +275,7 @@ http://localhost:8080/api
 
 - 使用 `jakarta.validation` 对请求 DTO 做基础校验
 - 邮箱不存在、密码错误、验证码过期、验证码频率限制等，都由后端返回明确 message
+- 没有 Token 或 Token 无效时，请求其它接口统一返回 `401 Unauthorized`
 
 ### 5.3 常见错误信息
 
@@ -284,21 +284,19 @@ http://localhost:8080/api
 - `该邮箱已注册`
 - `请先获取验证码`
 - `验证码错误`
-- `请求过于频繁，请 60 秒后再试`
-- `该邮箱验证码请求次数过多，请 1 小时后再试`
+- `无权限访问 / Token 过期` (401)
 
 ## 6. 安全建议
 
 1. 生产环境中不要把验证码直接返回给前端，改为邮件发送。
 2. 生产环境中不要使用明文密码比对，应该使用 BCrypt 或同类哈希算法。
-3. 建议增加登录态令牌机制，例如 JWT / Session，替代单纯 `localStorage` 存用户信息。
-4. 建议增加注册验证码图形校验或行为校验，降低被刷接口风险。
-5. 建议对登录、验证码请求做更严格的限流和审计日志。
+3. 建议增加注册验证码图形校验或行为校验，降低被刷接口风险。
+4. 建议对登录、验证码请求做更严格的限流和审计日志。
 
 ## 7. 后续可扩展项
 
-- 登录态 Token 与刷新机制
-- 退出登录接口
+- JWT 双 Token（Access Token + Refresh Token）刷新机制
+- 退出登录接口（Token 黑名单机制）
 - 找回密码流程
 - 邮箱验证码邮件发送
 - 用户头像、角色、状态管理

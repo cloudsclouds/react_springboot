@@ -20,6 +20,7 @@ export interface RegisterPayload {
 export interface LoginResponse {
   success: boolean;
   message: string;
+  token: string | null;
   userId: number | null;
   nickname: string | null;
 }

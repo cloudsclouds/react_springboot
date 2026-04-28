@@ -1,5 +1,7 @@
 package com.example.server_springboot.service.impl;
 
+import com.example.server_springboot.util.JwtUtils;
+
 import com.example.server_springboot.dto.LoginRequest;
 import com.example.server_springboot.dto.LoginResponse;
 import com.example.server_springboot.dto.RegisterCodeRequest;
@@ -46,15 +48,16 @@ public class AuthServiceImpl implements AuthService {
     UserAccount user = userAccountMapper.findByEmail(request.getEmail());
 
     if (user == null) {
-      return new LoginResponse(false, "用户不存在", null, null);
+      return new LoginResponse(false, "用户不存在", null, null, null);
     }
 
     // 当前先做明文比对（生产环境建议使用 BCrypt 哈希校验）
     if (!user.getPassword().equals(request.getPassword())) {
-      return new LoginResponse(false, "密码错误", null, null);
+      return new LoginResponse(false, "密码错误", null, null, null);
     }
 
-    return new LoginResponse(true, "登录成功", user.getId(), user.getNickname());
+    String token = JwtUtils.generateToken(user.getId());
+    return new LoginResponse(true, "登录成功", token, user.getId(), user.getNickname());
   }
 
   @Override
