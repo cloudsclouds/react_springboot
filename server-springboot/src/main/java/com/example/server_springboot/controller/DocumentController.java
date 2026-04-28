@@ -39,6 +39,11 @@ public class DocumentController {
     return documentService.updateDocumentTitle(id, request);
   }
 
+  @PatchMapping("/{id}/snapshot")
+  public ApiResponse<String> updateDocumentSnapshot(@PathVariable Long id, @RequestBody UpdateDocumentRequest request) {
+    return documentService.updateDocumentSnapshot(id, request);
+  }
+
   @DeleteMapping("/{id}")
   public ApiResponse<String> deleteDocument(@PathVariable Long id) {
     return documentService.deleteDocument(id);

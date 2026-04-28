@@ -11,13 +11,16 @@ export interface CreateDocumentPayload {
 }
 
 export interface UpdateDocumentPayload {
-  title: string;
+  title?: string;
+  latestSnapshot?: string;
 }
 
 export interface DocumentData {
   id: number;
   title: string;
   ownerId: number;
+  ownerName: string;
+  latestSnapshot?: string;
   myRole: string;
   updatedAt: string;
 }
@@ -42,6 +45,10 @@ export async function updateDocumentTitle(id: number, payload: UpdateDocumentPay
   return putJson<ApiResponse<null>>(`/documents/${id}`, payload);
 }
 
+export async function updateDocumentSnapshot(id: number, payload: UpdateDocumentPayload) {
+  return postJson<ApiResponse<null>>(`/documents/${id}/snapshot`, payload);
+}
+
 export async function deleteDocument(id: number) {
   return deleteJson<ApiResponse<null>>(`/documents/${id}`);
 }
@@ -51,5 +58,6 @@ export const documentApi = {
   fetchDocuments,
   fetchDocumentMetadata,
   updateDocumentTitle,
+  updateDocumentSnapshot,
   deleteDocument,
 };

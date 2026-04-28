@@ -42,6 +42,7 @@
 ### 2.3 当前实现说明
 
 - 鉴权依赖现有的 `users` 表。现有 `users` 表包含字段：`id`, `username`, `email`, `password`, `nickname`, `created_at`。
+- 文档创建时会写入 `owner_name`，并初始化一份结构化的 `latest_snapshot`，用于页面和测试环境直接预览正文内容。
 - 多人协同依赖 WebSocket 建立实时连接。文档的文本状态（State Vector）由 Yjs 进行 CRDT 合并。
 - 业务控制由 Spring Boot 提供 REST API，协同状态同步则专职由 Node 负责。
 
@@ -56,6 +57,7 @@
 | id              | BIGINT       | 主键                         |
 | title           | VARCHAR(200) | 文档标题                     |
 | owner_id        | BIGINT       | 拥有者 ID (外键关联 users.id)|
+| owner_name      | VARCHAR(100) | 拥有者名称                   |
 | latest_snapshot | LONGTEXT     | 最新 Yjs 快照数据            |
 | version         | INT          | 乐观锁/版本号                |
 | status          | TINYINT      | 状态 (0-正常, 1-回收站)      |
@@ -147,6 +149,7 @@
       "id": 1001,
       "title": "我的新文档",
       "ownerId": 1,
+      "ownerName": "管理员",
       "role": "owner",
       "updatedAt": "2023-10-01T12:00:00Z"
     }
@@ -157,7 +160,50 @@
 #### 3.2.3 获取文档元数据
 
 - URL：`GET /api/documents/{id}`
-- 功能：获取文档的基础信息与权限
+- 功能：获取文档的基础信息、作者名称、正文快照与权限
+- `latestSnapshot` 仅存储内容本体，并尽量保持为 Tiptap 可消费的结构，例如：
+
+```json
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "heading",
+      "attrs": { "level": 1 },
+      "content": [{ "type": "text", "text": "产品需求文档" }]
+    },
+    {
+      "type": "paragraph",
+      "content": [{ "type": "text", "text": "这是一个用于测试的产品需求文档快照。" }]
+    },
+    {
+      "type": "bulletList",
+      "content": [
+        {
+          "type": "listItem",
+          "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "支持标题编辑" }] }]
+        }
+      ]
+    }
+  ]
+}
+```
+- 返回参数：
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1001,
+    "title": "我的新文档",
+    "ownerId": 1,
+    "ownerName": "管理员",
+    "latestSnapshot": "{\"state\":\"...\"}",
+    "role": "owner",
+    "updatedAt": "2023-10-01T12:00:00Z"
+  }
+}
+```
 
 #### 3.2.4 修改文档标题
 

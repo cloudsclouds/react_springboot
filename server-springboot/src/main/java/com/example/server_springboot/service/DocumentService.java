@@ -12,5 +12,6 @@ public interface DocumentService {
   ApiResponse<List<DocumentResponse>> getDocumentList();
   ApiResponse<DocumentResponse> getDocumentMetadata(Long id);
   ApiResponse<String> updateDocumentTitle(Long id, UpdateDocumentRequest request);
+  ApiResponse<String> updateDocumentSnapshot(Long id, UpdateDocumentRequest request);
   ApiResponse<String> deleteDocument(Long id);
 }

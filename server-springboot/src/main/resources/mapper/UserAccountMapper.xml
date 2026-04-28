@@ -12,6 +12,13 @@
     LIMIT 1
   </select>
 
+  <select id="findById" parameterType="long" resultType="com.example.server_springboot.entity.UserAccount">
+    SELECT id, username, email, password, nickname
+    FROM users
+    WHERE id = #{id}
+    LIMIT 1
+  </select>
+
   <insert id="insertUser" parameterType="com.example.server_springboot.entity.UserAccount" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO users (username, email, password, nickname)
     VALUES (#{username}, #{email}, #{password}, #{nickname})

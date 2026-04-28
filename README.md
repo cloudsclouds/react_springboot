@@ -19,23 +19,10 @@ Enter password: 123456
 ```
 
 1. 数据库名：platform
-2. users 表
 
 ```
-
-CREATE TABLE users (
-    id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    username VARCHAR(50) NOT NULL UNIQUE,
-    email VARCHAR(100) UNIQUE,
-    password VARCHAR(255) NOT NULL,
-    nickname VARCHAR(50),
-    avatar VARCHAR(255),
-    status TINYINT DEFAULT 1 COMMENT '1正常 0禁用',
-
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      ON UPDATE CURRENT_TIMESTAMP
-);
+mysql -u root -p platform  < server-springboot/sql/init.sql
+Enter password: 123456
 ```
 
 ## 启动redis

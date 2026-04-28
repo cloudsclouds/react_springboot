@@ -3,8 +3,8 @@
 <mapper namespace="com.example.server_springboot.mapper.DocumentMapper">
 
   <insert id="insertDocument" useGeneratedKeys="true" keyProperty="id">
-    INSERT INTO documents (title, owner_id, latest_snapshot, version, status, created_at, updated_at)
-    VALUES (#{title}, #{ownerId}, #{latestSnapshot}, 1, 0, NOW(), NOW())
+    INSERT INTO documents (title, owner_id, owner_name, latest_snapshot, version, status, created_at, updated_at)
+    VALUES (#{title}, #{ownerId}, #{ownerName}, #{latestSnapshot}, 1, 0, NOW(), NOW())
   </insert>
 
   <select id="findById" resultType="com.example.server_springboot.entity.Document">
@@ -16,6 +16,7 @@
       d.id, 
       d.title, 
       d.owner_id as ownerId, 
+      d.owner_name as ownerName,
       dm.role as myRole, 
       d.updated_at as updatedAt
     FROM documents d
@@ -26,6 +27,10 @@
 
   <update id="updateTitle">
     UPDATE documents SET title = #{title}, updated_at = NOW() WHERE id = #{id}
+  </update>
+
+  <update id="updateSnapshot">
+    UPDATE documents SET latest_snapshot = #{latestSnapshot}, updated_at = NOW() WHERE id = #{id}
   </update>
 
   <update id="updateStatus">

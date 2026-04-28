@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS documents (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   title VARCHAR(200) NOT NULL,
   owner_id BIGINT NOT NULL,
+  owner_name VARCHAR(100) NOT NULL,
   latest_snapshot LONGTEXT,
   version INT DEFAULT 1,
   status TINYINT DEFAULT 0 COMMENT '0-正常, 1-回收站',
@@ -57,9 +58,9 @@ INSERT INTO users (id, username, email, password, nickname) VALUES
 (2, 'test_user', 'user@test.com', '123456', '测试用户'),
 (3, 'editor_user', 'editor@test.com', '123456', '编辑用户');
 
-INSERT INTO documents (id, title, owner_id, latest_snapshot, version, status) VALUES 
-(1, '产品需求文档', 1, '{"state": "test snapshot 1"}', 1, 0),
-(2, '前端架构设计', 2, '{"state": "test snapshot 2"}', 1, 0);
+INSERT INTO documents (id, title, owner_id, owner_name, latest_snapshot, version, status) VALUES 
+(1, '产品需求文档', 1, '管理员', '{"blocks":[{"type":"heading","level":1,"text":"产品需求文档"},{"type":"paragraph","text":"这是一个用于测试的产品需求文档快照。"},{"type":"paragraph","text":"作者：管理员"},{"type":"list","ordered":false,"items":["支持标题编辑","支持作者信息展示","支持快照加载测试"]}]}', 1, 0),
+(2, '前端架构设计', 2, '测试用户', '{"blocks":[{"type":"heading","level":1,"text":"前端架构设计"},{"type":"paragraph","text":"这是一个用于测试的前端架构文档快照。"},{"type":"paragraph","text":"作者：测试用户"},{"type":"list","ordered":false,"items":["组件拆分","状态管理","接口联调"]}]}', 1, 0);
 
 INSERT INTO document_members (document_id, user_id, role) VALUES 
 (1, 1, 'owner'),

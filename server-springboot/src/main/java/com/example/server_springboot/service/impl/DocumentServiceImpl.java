@@ -9,6 +9,7 @@ import com.example.server_springboot.entity.Document;
 import com.example.server_springboot.entity.DocumentMember;
 import com.example.server_springboot.mapper.DocumentMapper;
 import com.example.server_springboot.mapper.DocumentMemberMapper;
+import com.example.server_springboot.mapper.UserAccountMapper;
 import com.example.server_springboot.service.DocumentService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -18,12 +19,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+
 @Service
 @RequiredArgsConstructor
 public class DocumentServiceImpl implements DocumentService {
 
   private final DocumentMapper documentMapper;
   private final DocumentMemberMapper documentMemberMapper;
+  private final UserAccountMapper userAccountMapper;
 
   @Override
   @Transactional
@@ -34,8 +37,10 @@ public class DocumentServiceImpl implements DocumentService {
     Document doc = new Document();
     doc.setTitle(request.getTitle());
     doc.setOwnerId(userId);
-    doc.setLatestSnapshot("{}"); 
-    
+    String ownerName = getCurrentUserName(userId);
+    doc.setOwnerName(ownerName);
+    doc.setLatestSnapshot(buildInitialSnapshot(request.getTitle(), ownerName));
+
     documentMapper.insertDocument(doc);
 
     DocumentMember member = new DocumentMember();
@@ -77,6 +82,8 @@ public class DocumentServiceImpl implements DocumentService {
     resp.setId(doc.getId());
     resp.setTitle(doc.getTitle());
     resp.setOwnerId(doc.getOwnerId());
+    resp.setOwnerName(doc.getOwnerName());
+    resp.setLatestSnapshot(doc.getLatestSnapshot());
     resp.setMyRole(member.getRole());
     resp.setUpdatedAt(doc.getUpdatedAt());
 
@@ -105,6 +112,31 @@ public class DocumentServiceImpl implements DocumentService {
 
   @Override
   @Transactional
+  public ApiResponse<String> updateDocumentSnapshot(Long id, UpdateDocumentRequest request) {
+    Long userId = UserContext.getUserId();
+    if (userId == null) return ApiResponse.error("未认证用户");
+
+    DocumentMember member = documentMemberMapper.findByDocumentIdAndUserId(id, userId);
+    if (member == null || (!"owner".equals(member.getRole()) && !"editor".equals(member.getRole()))) {
+      return ApiResponse.error("无权限修改文档内容");
+    }
+
+    Document doc = documentMapper.findById(id);
+    if (doc == null || doc.getStatus() == 1) {
+      return ApiResponse.error("文档不存在或已被删除");
+    }
+
+    String snapshot = request.getLatestSnapshot();
+    if (snapshot == null || snapshot.isBlank()) {
+      return ApiResponse.error("文档内容不能为空");
+    }
+
+    documentMapper.updateSnapshot(id, snapshot);
+    return ApiResponse.success("内容已保存", null);
+  }
+
+  @Override
+  @Transactional
   public ApiResponse<String> deleteDocument(Long id) {
     Long userId = UserContext.getUserId();
     if (userId == null) return ApiResponse.error("未认证用户");
@@ -121,5 +153,37 @@ public class DocumentServiceImpl implements DocumentService {
 
     documentMapper.updateStatus(id, 1);
     return ApiResponse.success("删除成功", null);
+  }
+
+  private String getCurrentUserName(Long userId) {
+    var user = userAccountMapper.findById(userId);
+    if (user == null) {
+      return "未知作者";
+    }
+    return user.getNickname() != null && !user.getNickname().isBlank() ? user.getNickname() : user.getUsername();
+  }
+
+  private String buildInitialSnapshot(String title, String ownerName) {
+    return "{"
+      + "\"type\":\"doc\"," 
+      + "\"version\":1,"
+      + "\"title\":\"" + escapeJson(title) + "\","
+      + "\"content\":["
+      + "{\"type\":\"heading\",\"attrs\":{\"level\":1},\"content\":[{\"type\":\"text\",\"text\":\"" + escapeJson(title) + "\"}]},"
+      + "{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"作者：" + escapeJson(ownerName) + "\"}]},"
+      + "{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"用途：用于测试文档标题、作者、正文快照与协同加载。\"}]},"
+      + "{\"type\":\"bulletList\",\"content\":["
+      + "{\"type\":\"listItem\",\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"支持标题编辑\"}]}]},"
+      + "{\"type\":\"listItem\",\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"支持作者信息展示\"}]}]},"
+      + "{\"type\":\"listItem\",\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"支持快照加载测试\"}]}]}]"
+      + "}]"
+      + "}";
+  }
+
+  private String escapeJson(String value) {
+    if (value == null) {
+      return "";
+    }
+    return value.replace("\\", "\\\\").replace("\"", "\\\"");
   }
 }

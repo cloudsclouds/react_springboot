@@ -12,5 +12,6 @@ public interface DocumentMapper {
   Document findById(@Param("id") Long id);
   List<DocumentResponse> findUserDocuments(@Param("userId") Long userId);
   int updateTitle(@Param("id") Long id, @Param("title") String title);
+  int updateSnapshot(@Param("id") Long id, @Param("latestSnapshot") String latestSnapshot);
   int updateStatus(@Param("id") Long id, @Param("status") Integer status);
 }

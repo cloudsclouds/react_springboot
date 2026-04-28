@@ -7,4 +7,6 @@ import lombok.Data;
 public class UpdateDocumentRequest {
   @NotBlank(message = "文档标题不能为空")
   private String title;
+
+  private String latestSnapshot;
 }

@@ -15,8 +15,9 @@ function getAuthHeaders(): HeadersInit {
     const userStr = localStorage.getItem('paperdesk-user');
     if (userStr) {
       const user = JSON.parse(userStr);
-      if (user.token) {
-        headers['Authorization'] = `Bearer ${user.token}`;
+      const token = user.token || user.accessToken;
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
       }
     }
   } catch (e) {

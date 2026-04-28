@@ -155,6 +155,7 @@ export default function AuthPage() {
           userId: result.userId,
           nickname: result.nickname,
           email: payload.email,
+          token: result.token,
         })
       );
 
