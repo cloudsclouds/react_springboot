@@ -1,4 +1,4 @@
-import { getJson, postJson, putJson, deleteJson } from './http';
+import { getJson, postJson, putJson, patchJson, deleteJson } from './http';
 
 export interface ApiResponse<T> {
   success: boolean;
@@ -77,7 +77,7 @@ export async function updateDocumentTitle(id: number, payload: UpdateDocumentPay
 }
 
 export async function updateDocumentSnapshot(id: number, payload: UpdateDocumentPayload) {
-  return postJson<ApiResponse<null>>(`/documents/${id}/snapshot`, payload);
+  return patchJson<ApiResponse<null>>(`/documents/${id}/snapshot`, payload);
 }
 
 export async function deleteDocument(id: number) {

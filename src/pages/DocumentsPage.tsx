@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { createDocument, createShareLink, deleteDocument, fetchDocumentMembers, fetchDocumentMetadata, fetchDocuments, joinByShareLink, removeDocumentMember, updateDocumentTitle, upsertDocumentMember } from '@/api/document';
+import { createDocument, createShareLink, deleteDocument, fetchDocumentMembers, fetchDocumentMetadata, fetchDocuments, joinByShareLink, removeDocumentMember, updateDocumentSnapshot, updateDocumentTitle, upsertDocumentMember } from '@/api/document';
 import { SimpleEditor } from '@/components/tiptap-templates/simple/simple-editor';
 import NoPermissionPage from './NoPermissionPage';
 import NotFoundPage from './NotFoundPage';
@@ -77,6 +77,7 @@ export default function DocumentsPage() {
   const [titleDraft, setTitleDraft] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingSnapshot, setIsSavingSnapshot] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [message, setMessage] = useState('');
@@ -247,6 +248,18 @@ export default function DocumentsPage() {
       setActiveMemberIndex(0);
     }
   }, [activeMemberIndex, filteredMembers.length]);
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      const isSave = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's';
+      if (!isSave) return;
+      event.preventDefault();
+      if (!activeDocument || !isEditable) return;
+      void handleSaveSnapshot();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activeDocument, isEditable, editorSnapshot]);
 
   const loadMembers = async (documentId) => {
     const response = await fetchDocumentMembers(documentId);
@@ -477,6 +490,40 @@ export default function DocumentsPage() {
     );
   };
 
+  const handleSaveSnapshot = async () => {
+    if (!activeDocument) return;
+    const role = documentAccess[activeDocument.id] || normalizeRole(activeDocument.myRole);
+    if (role === 'no_access') {
+      setAccessDeniedDocumentId(activeDocument.id);
+      return;
+    }
+    if (!canRole(role, 'editor')) {
+      setErrorMessage('当前角色没有编辑权限');
+      return;
+    }
+
+    const currentContent = editorContentRef.current ?? editorSnapshot ?? snapshotToTiptapContent(activeDocument.latestSnapshot);
+    if (!currentContent) {
+      setErrorMessage('暂无可保存内容');
+      return;
+    }
+
+    setIsSavingSnapshot(true);
+    setErrorMessage('');
+    setMessage('');
+    try {
+      const response = await updateDocumentSnapshot(activeDocument.id, { latestSnapshot: JSON.stringify(currentContent) });
+      if (!response.ok) throw new Error(response.data?.message || '保存文档内容失败');
+      setMessage('文档内容已保存');
+      await reloadDocument(activeDocument.id).catch(() => null);
+    } catch (error) {
+      if (error instanceof Error && /没有权限|权限/i.test(error.message)) setAccessDeniedDocumentId(activeDocument.id);
+      setErrorMessage(error instanceof Error ? error.message : '保存文档内容失败');
+    } finally {
+      setIsSavingSnapshot(false);
+    }
+  };
+
   if (isLoading) {
     return <section className="page-shell"><header className="page-hero"><div><span className="panel-kicker">Documents</span><h2>文档管理</h2></div></header><div className="panel"><p>正在加载文档列表...</p></div></section>;
   }
@@ -658,6 +705,7 @@ export default function DocumentsPage() {
                   <input value={titleDraft} onChange={(event) => setTitleDraft(event.target.value)} placeholder="请输入标题" disabled={!isEditable} />
                 </label>
                 <button type="button" className="primary-button" onClick={handleSaveTitle} disabled={isSaving || !isEditable}>{isSaving ? '保存中...' : '保存标题'}</button>
+                <button type="button" className="secondary-button" onClick={handleSaveSnapshot} disabled={isSavingSnapshot || !isEditable}>{isSavingSnapshot ? '内容保存中...' : '保存内容（Ctrl+S）'}</button>
               </div>
 
               <div className="document-detail__body">
@@ -667,7 +715,7 @@ export default function DocumentsPage() {
                   <SimpleEditor
                     key={`${activeDocument.id}-${isEditable ? 'edit' : 'read'}`}
                     initialContent={editorSnapshot || snapshotToTiptapContent(activeDocument.latestSnapshot)}
-                    onContentChange={isEditable ? handleEditorChange : undefined}
+                    onContentChange={isEditable ? (content) => { editorContentRef.current = content; handleEditorChange(content); } : undefined}
                     readOnly={!isEditable}
                   />
                   {!isEditable ? (

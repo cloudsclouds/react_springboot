@@ -73,6 +73,15 @@ export async function putJson<TResponse>(path: string, payload: unknown): Promis
   return handleResponse<TResponse>(response);
 }
 
+export async function patchJson<TResponse>(path: string, payload: unknown): Promise<ApiResult<TResponse>> {
+  const response = await fetch(`${JAVA_API_BASE_URL}${path}`, {
+    method: 'PATCH',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload),
+  });
+  return handleResponse<TResponse>(response);
+}
+
 export async function deleteJson<TResponse>(path: string): Promise<ApiResult<TResponse>> {
   const response = await fetch(`${JAVA_API_BASE_URL}${path}`, {
     method: 'DELETE',
