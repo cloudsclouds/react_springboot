@@ -168,6 +168,7 @@ function WorkspaceLayout({ themeMode, onToggleTheme }) {
           <Routes>
             <Route path="/workspace" element={<WorkspaceHomePage />} />
             <Route path="/documents" element={<DocumentsPage />} />
+            <Route path="/documents/:id" element={<DocumentsPage />} />
             <Route path="/ai" element={<AIChatPage />} />
             <Route path="/knowledge-base" element={<KnowledgeBasePage />} />
             <Route path="/organizations" element={<OrganizationsPage />} />

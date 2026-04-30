@@ -6,6 +6,12 @@ export interface ApiResponse<T> {
   data: T;
 }
 
+export interface ApiErrorResponse {
+  success?: boolean;
+  message?: string;
+  data?: unknown;
+}
+
 export interface CreateDocumentPayload {
   title: string;
 }

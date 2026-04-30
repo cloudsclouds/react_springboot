@@ -73,7 +73,7 @@
 | id          | BIGINT      | 主键                                    |
 | document_id | BIGINT      | 文档 ID                                 |
 | user_id     | BIGINT      | 用户 ID (外键关联 users.id)             |
-| role        | VARCHAR(20) | 角色 (owner, editor, viewer, commenter) |
+| role        | VARCHAR(20) | 角色 (owner, editor, viewer, no_access) |
 | joined_at   | DATETIME    | 加入时间                                |
 
 **3. document_versions (文档版本快照表)**
@@ -333,8 +333,10 @@ const provider = new HocuspocusProvider({
 
 - 在进行编辑、删除、邀请成员、回滚版本等操作前，后端必须校验当前用户在该文档下的 `role`。
 - `owner`：拥有所有权限（包括删除文档、修改他人权限）。
-- `editor`：只能修改内容。
+- `owner`：可读写删且可管理成员。
+- `editor`：可读写。
 - `viewer`：只读，无法修改内容。
+- `no_access`：无权限访问文档。
 
 ### 5.2 常见错误信息
 
@@ -363,7 +365,7 @@ const provider = new HocuspocusProvider({
 | 功能           | 方法   | 路径                                     | 说明                       |
 | -------------- | ------ | ---------------------------------------- | -------------------------- |
 | 创建文档       | POST   | /api/documents                           | 新建文档                   |
-| 文档列表       | GET    | /api/documents                           | 获取我的/协作文档          |
+| 文档列表       | GET    | /api/documents                           | 获取我可编辑/只读的文档    |
 | 文档元数据     | GET    | /api/documents/{id}                      | 获取文档基础信息           |
 | 重命名文档     | PUT    | /api/documents/{id}                      | 修改文档标题               |
 | 删除文档       | DELETE | /api/documents/{id}                      | 逻辑或物理删除文档         |

@@ -21,7 +21,9 @@
       d.updated_at as updatedAt
     FROM documents d
     INNER JOIN document_members dm ON d.id = dm.document_id
-    WHERE dm.user_id = #{userId} AND d.status = 0
+    WHERE dm.user_id = #{userId}
+      AND dm.role IN ('owner', 'editor', 'viewer')
+      AND d.status = 0
     ORDER BY d.updated_at DESC
   </select>
 

@@ -7,8 +7,22 @@
     VALUES (#{documentId}, #{userId}, #{role}, NOW())
   </insert>
 
+  <update id="updateRole">
+    UPDATE document_members
+    SET role = #{role}
+    WHERE document_id = #{documentId} AND user_id = #{userId}
+  </update>
+
+  <delete id="deleteMember">
+    DELETE FROM document_members WHERE document_id = #{documentId} AND user_id = #{userId}
+  </delete>
+
   <select id="findByDocumentIdAndUserId" resultType="com.example.server_springboot.entity.DocumentMember">
     SELECT * FROM document_members WHERE document_id = #{documentId} AND user_id = #{userId}
+  </select>
+
+  <select id="findByDocumentId" resultType="com.example.server_springboot.entity.DocumentMember">
+    SELECT * FROM document_members WHERE document_id = #{documentId} ORDER BY joined_at ASC
   </select>
 
 </mapper>

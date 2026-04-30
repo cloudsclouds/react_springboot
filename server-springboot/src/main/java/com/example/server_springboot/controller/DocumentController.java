@@ -2,11 +2,15 @@ package com.example.server_springboot.controller;
 
 import com.example.server_springboot.dto.ApiResponse;
 import com.example.server_springboot.dto.CreateDocumentRequest;
+import com.example.server_springboot.dto.DocumentMemberResponse;
 import com.example.server_springboot.dto.DocumentResponse;
 import com.example.server_springboot.dto.UpdateDocumentRequest;
+import com.example.server_springboot.dto.UpsertDocumentMemberRequest;
 import com.example.server_springboot.service.DocumentService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -30,8 +34,23 @@ public class DocumentController {
   }
 
   @GetMapping("/{id}")
-  public ApiResponse<DocumentResponse> getDocumentMetadata(@PathVariable Long id) {
-    return documentService.getDocumentMetadata(id);
+  public ResponseEntity<ApiResponse<DocumentResponse>> getDocumentMetadata(@PathVariable Long id) {
+    ApiResponse<DocumentResponse> response = documentService.getDocumentMetadata(id);
+    if (!response.isSuccess()) {
+      String message = response.getMessage() == null ? "" : response.getMessage();
+
+      if (message.contains("未认证")) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
+      }
+      if (message.contains("无权限") || message.contains("没有权限") || message.contains("仅创建者")) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+      }
+      if (message.contains("不存在") || message.contains("已被删除")) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+      }
+      return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    }
+    return ResponseEntity.ok(response);
   }
 
   @PutMapping("/{id}")
@@ -47,5 +66,20 @@ public class DocumentController {
   @DeleteMapping("/{id}")
   public ApiResponse<String> deleteDocument(@PathVariable Long id) {
     return documentService.deleteDocument(id);
+  }
+
+  @GetMapping("/{id}/members")
+  public ApiResponse<List<DocumentMemberResponse>> getDocumentMembers(@PathVariable Long id) {
+    return documentService.getDocumentMembers(id);
+  }
+
+  @PostMapping("/{id}/members")
+  public ApiResponse<DocumentMemberResponse> upsertDocumentMember(@PathVariable Long id, @Valid @RequestBody UpsertDocumentMemberRequest request) {
+    return documentService.upsertDocumentMember(id, request);
+  }
+
+  @DeleteMapping("/{id}/members/{userId}")
+  public ApiResponse<String> deleteDocumentMember(@PathVariable Long id, @PathVariable Long userId) {
+    return documentService.removeDocumentMember(id, userId);
   }
 }

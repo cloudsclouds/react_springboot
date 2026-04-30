@@ -3,8 +3,10 @@ package com.example.server_springboot.service.impl;
 import com.example.server_springboot.context.UserContext;
 import com.example.server_springboot.dto.ApiResponse;
 import com.example.server_springboot.dto.CreateDocumentRequest;
+import com.example.server_springboot.dto.DocumentMemberResponse;
 import com.example.server_springboot.dto.DocumentResponse;
 import com.example.server_springboot.dto.UpdateDocumentRequest;
+import com.example.server_springboot.dto.UpsertDocumentMemberRequest;
 import com.example.server_springboot.entity.Document;
 import com.example.server_springboot.entity.DocumentMember;
 import com.example.server_springboot.mapper.DocumentMapper;
@@ -12,6 +14,7 @@ import com.example.server_springboot.mapper.DocumentMemberMapper;
 import com.example.server_springboot.mapper.UserAccountMapper;
 import com.example.server_springboot.service.DocumentService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -60,6 +63,12 @@ public class DocumentServiceImpl implements DocumentService {
     if (userId == null) return ApiResponse.error("未认证用户");
 
     List<DocumentResponse> list = documentMapper.findUserDocuments(userId);
+    list = list.stream()
+      .filter(document -> {
+        String role = document.getMyRole();
+        return "owner".equalsIgnoreCase(role) || "editor".equalsIgnoreCase(role) || "viewer".equalsIgnoreCase(role);
+      })
+      .toList();
     return ApiResponse.success("获取成功", list);
   }
 
@@ -68,6 +77,144 @@ public class DocumentServiceImpl implements DocumentService {
     Long userId = UserContext.getUserId();
     if (userId == null) return ApiResponse.error("未认证用户");
 
+    return buildDocumentResponse(id, userId, false);
+  }
+
+  @Override
+  public ApiResponse<DocumentResponse> getDocumentMetadataForInternal(Long id) {
+    Long userId = UserContext.getUserId();
+    if (userId == null) return ApiResponse.error("未认证用户");
+
+    return buildDocumentResponse(id, userId, true);
+  }
+
+  @Override
+  @Transactional
+  public ApiResponse<String> updateDocumentTitle(Long id, UpdateDocumentRequest request) {
+    Long userId = UserContext.getUserId();
+    if (userId == null) return ApiResponse.error("未认证用户");
+
+    DocumentResponse access = requireDocumentAccess(id, userId, "editor");
+    if (access == null) {
+      return ApiResponse.error("无权限修改文档");
+    }
+
+    documentMapper.updateTitle(id, request.getTitle());
+    return ApiResponse.success("修改成功", null);
+  }
+
+  @Override
+  @Transactional
+  public ApiResponse<String> updateDocumentSnapshot(Long id, UpdateDocumentRequest request) {
+    Long userId = UserContext.getUserId();
+    if (userId == null) return ApiResponse.error("未认证用户");
+
+    DocumentResponse access = requireDocumentAccess(id, userId, "editor");
+    if (access == null) {
+      return ApiResponse.error("无权限修改文档内容");
+    }
+
+    String snapshot = request.getLatestSnapshot();
+    if (snapshot == null || snapshot.isBlank()) {
+      return ApiResponse.error("文档内容不能为空");
+    }
+
+    documentMapper.updateSnapshot(id, snapshot);
+    return ApiResponse.success("内容已保存", null);
+  }
+
+  @Override
+  public ApiResponse<List<DocumentMemberResponse>> getDocumentMembers(Long id) {
+    Long userId = UserContext.getUserId();
+    if (userId == null) return ApiResponse.error("未认证用户");
+
+    DocumentResponse access = requireDocumentAccess(id, userId, "viewer");
+    if (access == null) {
+      return ApiResponse.error("无权限访问该文档");
+    }
+
+    List<DocumentMemberResponse> members = documentMemberMapper.findByDocumentId(id).stream().map(member -> {
+      DocumentMemberResponse response = new DocumentMemberResponse();
+      response.setUserId(member.getUserId());
+      response.setRole(member.getRole());
+      response.setJoinedAt(member.getJoinedAt());
+      response.setNickname(getCurrentUserName(member.getUserId()));
+      response.setEditable(hasPermission(member.getRole(), "editor"));
+      return response;
+    }).filter(member -> hasPermission(member.getRole(), "viewer")).toList();
+
+    return ApiResponse.success("获取成功", members);
+  }
+
+  @Override
+  @Transactional
+  public ApiResponse<DocumentMemberResponse> upsertDocumentMember(Long id, UpsertDocumentMemberRequest request) {
+    Long userId = UserContext.getUserId();
+    if (userId == null) return ApiResponse.error("未认证用户");
+
+    DocumentResponse access = requireDocumentAccess(id, userId, "owner");
+    if (access == null) {
+      return ApiResponse.error("无权限管理成员");
+    }
+
+    DocumentMember member = documentMemberMapper.findByDocumentIdAndUserId(id, request.getUserId());
+    if (member == null) {
+      DocumentMember newMember = new DocumentMember();
+      newMember.setDocumentId(id);
+      newMember.setUserId(request.getUserId());
+      newMember.setRole(request.getRole());
+      documentMemberMapper.insertMember(newMember);
+      member = newMember;
+    } else {
+      documentMemberMapper.updateRole(id, request.getUserId(), request.getRole());
+      member.setRole(request.getRole());
+    }
+
+    DocumentMemberResponse response = new DocumentMemberResponse();
+    response.setUserId(member.getUserId());
+    response.setRole(member.getRole());
+    response.setJoinedAt(member.getJoinedAt());
+    response.setNickname(getCurrentUserName(member.getUserId()));
+    response.setEditable(hasPermission(member.getRole(), "editor"));
+    response.setCommentable(hasPermission(member.getRole(), "commentor"));
+    return ApiResponse.success("保存成功", response);
+  }
+
+  @Override
+  @Transactional
+  public ApiResponse<String> removeDocumentMember(Long id, Long targetUserId) {
+    Long userId = UserContext.getUserId();
+    if (userId == null) return ApiResponse.error("未认证用户");
+
+    DocumentResponse access = requireDocumentAccess(id, userId, "owner");
+    if (access == null) {
+      return ApiResponse.error("无权限管理成员");
+    }
+
+    if (userId.equals(targetUserId)) {
+      return ApiResponse.error("不能移除自己");
+    }
+
+    documentMemberMapper.deleteMember(id, targetUserId);
+    return ApiResponse.success("移除成功", null);
+  }
+
+  @Override
+  @Transactional
+  public ApiResponse<String> deleteDocument(Long id) {
+    Long userId = UserContext.getUserId();
+    if (userId == null) return ApiResponse.error("未认证用户");
+
+    DocumentResponse access = requireDocumentAccess(id, userId, "owner");
+    if (access == null) {
+      return ApiResponse.error("仅创建者可删除文档");
+    }
+
+    documentMapper.updateStatus(id, 1);
+    return ApiResponse.success("删除成功", null);
+  }
+
+  private ApiResponse<DocumentResponse> buildDocumentResponse(Long id, Long userId, boolean allowMissingMember) {
     Document doc = documentMapper.findById(id);
     if (doc == null || doc.getStatus() == 1) {
       return ApiResponse.error("文档不存在或已被删除");
@@ -75,6 +222,11 @@ public class DocumentServiceImpl implements DocumentService {
 
     DocumentMember member = documentMemberMapper.findByDocumentIdAndUserId(id, userId);
     if (member == null) {
+      return ApiResponse.error("无权限访问该文档");
+    }
+
+    String myRole = member.getRole() == null ? "" : member.getRole().toLowerCase();
+    if ("no_access".equals(myRole)) {
       return ApiResponse.error("无权限访问该文档");
     }
 
@@ -90,69 +242,44 @@ public class DocumentServiceImpl implements DocumentService {
     return ApiResponse.success("获取成功", resp);
   }
 
-  @Override
-  @Transactional
-  public ApiResponse<String> updateDocumentTitle(Long id, UpdateDocumentRequest request) {
-    Long userId = UserContext.getUserId();
-    if (userId == null) return ApiResponse.error("未认证用户");
-
-    DocumentMember member = documentMemberMapper.findByDocumentIdAndUserId(id, userId);
-    if (member == null || (!"owner".equals(member.getRole()) && !"editor".equals(member.getRole()))) {
-      return ApiResponse.error("无权限修改文档");
-    }
-
+  private DocumentResponse requireDocumentAccess(Long id, Long userId, String requiredRole) {
     Document doc = documentMapper.findById(id);
     if (doc == null || doc.getStatus() == 1) {
-      return ApiResponse.error("文档不存在或已被删除");
+      return null;
     }
-
-    documentMapper.updateTitle(id, request.getTitle());
-    return ApiResponse.success("修改成功", null);
-  }
-
-  @Override
-  @Transactional
-  public ApiResponse<String> updateDocumentSnapshot(Long id, UpdateDocumentRequest request) {
-    Long userId = UserContext.getUserId();
-    if (userId == null) return ApiResponse.error("未认证用户");
 
     DocumentMember member = documentMemberMapper.findByDocumentIdAndUserId(id, userId);
-    if (member == null || (!"owner".equals(member.getRole()) && !"editor".equals(member.getRole()))) {
-      return ApiResponse.error("无权限修改文档内容");
+    if (member == null) {
+      return null;
     }
 
-    Document doc = documentMapper.findById(id);
-    if (doc == null || doc.getStatus() == 1) {
-      return ApiResponse.error("文档不存在或已被删除");
+    if (!hasPermission(member.getRole(), requiredRole)) {
+      return null;
     }
 
-    String snapshot = request.getLatestSnapshot();
-    if (snapshot == null || snapshot.isBlank()) {
-      return ApiResponse.error("文档内容不能为空");
-    }
-
-    documentMapper.updateSnapshot(id, snapshot);
-    return ApiResponse.success("内容已保存", null);
+    DocumentResponse resp = new DocumentResponse();
+    resp.setId(doc.getId());
+    resp.setTitle(doc.getTitle());
+    resp.setOwnerId(doc.getOwnerId());
+    resp.setOwnerName(doc.getOwnerName());
+    resp.setLatestSnapshot(doc.getLatestSnapshot());
+    resp.setMyRole(member.getRole());
+    resp.setUpdatedAt(doc.getUpdatedAt());
+    return resp;
   }
 
-  @Override
-  @Transactional
-  public ApiResponse<String> deleteDocument(Long id) {
-    Long userId = UserContext.getUserId();
-    if (userId == null) return ApiResponse.error("未认证用户");
+  private boolean hasPermission(String role, String requiredRole) {
+    return roleRank(role) >= roleRank(requiredRole);
+  }
 
-    DocumentMember member = documentMemberMapper.findByDocumentIdAndUserId(id, userId);
-    if (member == null || !"owner".equals(member.getRole())) {
-      return ApiResponse.error("仅创建者可删除文档");
-    }
-
-    Document doc = documentMapper.findById(id);
-    if (doc == null) {
-      return ApiResponse.error("文档不存在");
-    }
-
-    documentMapper.updateStatus(id, 1);
-    return ApiResponse.success("删除成功", null);
+  private int roleRank(String role) {
+    return switch (role == null ? "" : role.toLowerCase()) {
+      case "owner" -> 4;
+      case "editor" -> 3;
+      case "no_access" -> 0;
+      case "viewer" -> 1;
+      default -> 0;
+    };
   }
 
   private String getCurrentUserName(Long userId) {

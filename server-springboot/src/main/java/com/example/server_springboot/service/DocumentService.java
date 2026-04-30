@@ -2,8 +2,11 @@ package com.example.server_springboot.service;
 
 import com.example.server_springboot.dto.ApiResponse;
 import com.example.server_springboot.dto.CreateDocumentRequest;
+import com.example.server_springboot.dto.DocumentMemberListResponse;
+import com.example.server_springboot.dto.DocumentMemberResponse;
 import com.example.server_springboot.dto.DocumentResponse;
 import com.example.server_springboot.dto.UpdateDocumentRequest;
+import com.example.server_springboot.dto.UpsertDocumentMemberRequest;
 import java.util.List;
 import java.util.Map;
 
@@ -14,4 +17,8 @@ public interface DocumentService {
   ApiResponse<String> updateDocumentTitle(Long id, UpdateDocumentRequest request);
   ApiResponse<String> updateDocumentSnapshot(Long id, UpdateDocumentRequest request);
   ApiResponse<String> deleteDocument(Long id);
+  ApiResponse<DocumentResponse> getDocumentMetadataForInternal(Long id);
+  ApiResponse<List<DocumentMemberResponse>> getDocumentMembers(Long id);
+  ApiResponse<DocumentMemberResponse> upsertDocumentMember(Long id, UpsertDocumentMemberRequest request);
+  ApiResponse<String> removeDocumentMember(Long id, Long userId);
 }

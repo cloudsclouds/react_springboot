@@ -160,7 +160,7 @@ const MobileToolbarContent = ({
   </>
 )
 
-export function SimpleEditor({ initialContent = content, onContentChange }) {
+export function SimpleEditor({ initialContent = content, onContentChange, readOnly = false }) {
   const isMobile = useIsBreakpoint()
   const { height } = useWindowSize()
   const [mobileView, setMobileView] = useState("main")
@@ -169,6 +169,7 @@ export function SimpleEditor({ initialContent = content, onContentChange }) {
 
   const editor = useEditor({
     immediatelyRender: false,
+    editable: !readOnly,
     editorProps: {
       attributes: {
         autocomplete: "off",
