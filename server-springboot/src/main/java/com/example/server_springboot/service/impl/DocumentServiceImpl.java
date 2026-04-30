@@ -2,15 +2,20 @@ package com.example.server_springboot.service.impl;
 
 import com.example.server_springboot.context.UserContext;
 import com.example.server_springboot.dto.ApiResponse;
+import com.example.server_springboot.dto.ApplyShareLinkRequest;
 import com.example.server_springboot.dto.CreateDocumentRequest;
+import com.example.server_springboot.dto.CreateShareLinkRequest;
 import com.example.server_springboot.dto.DocumentMemberResponse;
 import com.example.server_springboot.dto.DocumentResponse;
+import com.example.server_springboot.dto.ShareLinkResponse;
 import com.example.server_springboot.dto.UpdateDocumentRequest;
 import com.example.server_springboot.dto.UpsertDocumentMemberRequest;
 import com.example.server_springboot.entity.Document;
 import com.example.server_springboot.entity.DocumentMember;
+import com.example.server_springboot.entity.ShareLink;
 import com.example.server_springboot.mapper.DocumentMapper;
 import com.example.server_springboot.mapper.DocumentMemberMapper;
+import com.example.server_springboot.mapper.ShareLinkMapper;
 import com.example.server_springboot.mapper.UserAccountMapper;
 import com.example.server_springboot.service.DocumentService;
 import lombok.RequiredArgsConstructor;
@@ -18,9 +23,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 
 @Service
@@ -29,6 +36,7 @@ public class DocumentServiceImpl implements DocumentService {
 
   private final DocumentMapper documentMapper;
   private final DocumentMemberMapper documentMemberMapper;
+  private final ShareLinkMapper shareLinkMapper;
   private final UserAccountMapper userAccountMapper;
 
   @Override
@@ -195,8 +203,103 @@ public class DocumentServiceImpl implements DocumentService {
       return ApiResponse.error("不能移除自己");
     }
 
+    Document doc = documentMapper.findById(id);
+    if (doc == null || doc.getStatus() == 1) {
+      return ApiResponse.error("文档不存在或已被删除");
+    }
+    if (doc.getOwnerId() != null && doc.getOwnerId().equals(targetUserId)) {
+      return ApiResponse.error("不能移除文档拥有者");
+    }
+
     documentMemberMapper.deleteMember(id, targetUserId);
     return ApiResponse.success("移除成功", null);
+  }
+
+  @Override
+  @Transactional
+  public ApiResponse<ShareLinkResponse> createShareLink(Long id, CreateShareLinkRequest request) {
+    Long userId = UserContext.getUserId();
+    if (userId == null) return ApiResponse.error("未认证用户");
+
+    DocumentResponse access = requireDocumentAccess(id, userId, "owner");
+    if (access == null) {
+      return ApiResponse.error("无权限管理成员");
+    }
+
+    String permission = request == null || request.getPermission() == null || request.getPermission().isBlank()
+      ? "viewer"
+      : request.getPermission().toLowerCase();
+    if (!"viewer".equals(permission) && !"editor".equals(permission)) {
+      return ApiResponse.error("分享权限无效");
+    }
+
+    shareLinkMapper.deleteByDocumentId(id);
+
+    ShareLink shareLink = new ShareLink();
+    shareLink.setDocumentId(id);
+    shareLink.setPermission(permission);
+    shareLink.setShareToken(UUID.randomUUID().toString().replace("-", ""));
+    shareLink.setExpireTime(LocalDateTime.now().plusDays(7));
+    shareLinkMapper.insert(shareLink);
+
+    ShareLinkResponse response = new ShareLinkResponse();
+    response.setDocumentId(id);
+    response.setShareToken(shareLink.getShareToken());
+    response.setPermission(permission);
+    response.setExpireTime(shareLink.getExpireTime());
+    response.setShareUrl("/documents/" + id + "?shareToken=" + shareLink.getShareToken());
+
+    return ApiResponse.success("生成成功", response);
+  }
+
+  @Override
+  @Transactional
+  public ApiResponse<DocumentMemberResponse> applyShareLink(Long id, ApplyShareLinkRequest request) {
+    Long userId = UserContext.getUserId();
+    if (userId == null) return ApiResponse.error("未认证用户");
+
+    ShareLink shareLink = shareLinkMapper.findByShareToken(request.getShareToken());
+    if (shareLink == null || !id.equals(shareLink.getDocumentId())) {
+      return ApiResponse.error("分享链接无效");
+    }
+    if (shareLink.getExpireTime() != null && shareLink.getExpireTime().isBefore(LocalDateTime.now())) {
+      return ApiResponse.error("分享链接已过期");
+    }
+
+    Document doc = documentMapper.findById(id);
+    if (doc == null || doc.getStatus() == 1) {
+      return ApiResponse.error("文档不存在或已被删除");
+    }
+
+    if (doc.getOwnerId() != null && doc.getOwnerId().equals(userId)) {
+      DocumentMemberResponse ownerResponse = new DocumentMemberResponse();
+      ownerResponse.setUserId(userId);
+      ownerResponse.setRole("owner");
+      ownerResponse.setNickname(getCurrentUserName(userId));
+      ownerResponse.setEditable(true);
+      return ApiResponse.success("你已是文档拥有者", ownerResponse);
+    }
+
+    String role = shareLink.getPermission();
+    DocumentMember member = documentMemberMapper.findByDocumentIdAndUserId(id, userId);
+    if (member == null) {
+      member = new DocumentMember();
+      member.setDocumentId(id);
+      member.setUserId(userId);
+      member.setRole(role);
+      documentMemberMapper.insertMember(member);
+    } else {
+      documentMemberMapper.updateRole(id, userId, role);
+      member.setRole(role);
+    }
+
+    DocumentMemberResponse response = new DocumentMemberResponse();
+    response.setUserId(userId);
+    response.setRole(role);
+    response.setNickname(getCurrentUserName(userId));
+    response.setJoinedAt(member.getJoinedAt());
+    response.setEditable(hasPermission(role, "editor"));
+    return ApiResponse.success("加入成功", response);
   }
 
   @Override

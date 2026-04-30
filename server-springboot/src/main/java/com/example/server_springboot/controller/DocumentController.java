@@ -1,9 +1,12 @@
 package com.example.server_springboot.controller;
 
 import com.example.server_springboot.dto.ApiResponse;
+import com.example.server_springboot.dto.ApplyShareLinkRequest;
 import com.example.server_springboot.dto.CreateDocumentRequest;
+import com.example.server_springboot.dto.CreateShareLinkRequest;
 import com.example.server_springboot.dto.DocumentMemberResponse;
 import com.example.server_springboot.dto.DocumentResponse;
+import com.example.server_springboot.dto.ShareLinkResponse;
 import com.example.server_springboot.dto.UpdateDocumentRequest;
 import com.example.server_springboot.dto.UpsertDocumentMemberRequest;
 import com.example.server_springboot.service.DocumentService;
@@ -81,5 +84,15 @@ public class DocumentController {
   @DeleteMapping("/{id}/members/{userId}")
   public ApiResponse<String> deleteDocumentMember(@PathVariable Long id, @PathVariable Long userId) {
     return documentService.removeDocumentMember(id, userId);
+  }
+
+  @PostMapping("/{id}/share-links")
+  public ApiResponse<ShareLinkResponse> createShareLink(@PathVariable Long id, @Valid @RequestBody(required = false) CreateShareLinkRequest request) {
+    return documentService.createShareLink(id, request == null ? new CreateShareLinkRequest() : request);
+  }
+
+  @PostMapping("/{id}/join-by-link")
+  public ApiResponse<DocumentMemberResponse> joinByShareLink(@PathVariable Long id, @Valid @RequestBody ApplyShareLinkRequest request) {
+    return documentService.applyShareLink(id, request);
   }
 }

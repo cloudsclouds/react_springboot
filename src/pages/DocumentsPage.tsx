@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { createDocument, deleteDocument, fetchDocumentMetadata, fetchDocuments, updateDocumentTitle } from '@/api/document';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { createDocument, createShareLink, deleteDocument, fetchDocumentMembers, fetchDocumentMetadata, fetchDocuments, joinByShareLink, removeDocumentMember, updateDocumentTitle, upsertDocumentMember } from '@/api/document';
 import { SimpleEditor } from '@/components/tiptap-templates/simple/simple-editor';
 import NoPermissionPage from './NoPermissionPage';
 import NotFoundPage from './NotFoundPage';
@@ -69,6 +69,7 @@ function snapshotToTiptapContent(snapshot) {
 export default function DocumentsPage() {
   const navigate = useNavigate();
   const { id: routeDocumentId } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const editorContentRef = useRef(null);
   const [documents, setDocuments] = useState([]);
   const [documentAccess, setDocumentAccess] = useState({});
@@ -83,6 +84,18 @@ export default function DocumentsPage() {
   const [editorSnapshot, setEditorSnapshot] = useState(null);
   const [accessDeniedDocumentId, setAccessDeniedDocumentId] = useState(null);
   const [notFoundDocumentId, setNotFoundDocumentId] = useState(null);
+  const [members, setMembers] = useState([]);
+  const [memberUserId, setMemberUserId] = useState('');
+  const [memberRole, setMemberRole] = useState('viewer');
+  const [sharePermission, setSharePermission] = useState('viewer');
+  const [shareLink, setShareLink] = useState('');
+  const [showMemberPanel, setShowMemberPanel] = useState(false);
+  const [showSharePanel, setShowSharePanel] = useState(false);
+  const [selectedMemberId, setSelectedMemberId] = useState(null);
+  const [memberQuery, setMemberQuery] = useState('');
+  const [activeMemberIndex, setActiveMemberIndex] = useState(0);
+  const memberPanelRef = useRef(null);
+  const sharePanelRef = useRef(null);
 
   const requestedDocumentId = useMemo(() => {
     const nextRequestedId = routeDocumentId ? Number(routeDocumentId) : null;
@@ -93,6 +106,11 @@ export default function DocumentsPage() {
   const activeRole = normalizeRole(documentAccess[activeDocument?.id] || activeDocument?.myRole || 'no_access');
   const isReadOnly = activeRole === 'viewer';
   const isEditable = activeRole === 'editor' || activeRole === 'owner';
+  const filteredMembers = useMemo(() => {
+    const q = memberQuery.trim().toLowerCase();
+    if (!q) return members;
+    return members.filter((m) => `${m.nickname || ''} ${m.userId} ${m.role}`.toLowerCase().includes(q));
+  }, [members, memberQuery]);
 
   useEffect(() => {
     async function loadDocuments() {
@@ -167,6 +185,33 @@ export default function DocumentsPage() {
   }, [activeDocumentId]);
 
   useEffect(() => {
+    const shareToken = searchParams.get('shareToken');
+    if (!activeDocumentId || !shareToken) return;
+
+    let cancelled = false;
+    async function applyShareToken() {
+      const response = await joinByShareLink(activeDocumentId, shareToken);
+      if (cancelled) return;
+
+      if (!response.ok) {
+        setErrorMessage(response.data?.message || '加入文档失败');
+        return;
+      }
+
+      setMessage(`已通过分享链接加入文档（${response.data?.data?.role || 'viewer'}）`);
+      await reloadDocument(activeDocumentId).catch(() => null);
+      const next = new URLSearchParams(searchParams);
+      next.delete('shareToken');
+      setSearchParams(next, { replace: true });
+    }
+
+    void applyShareToken();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeDocumentId, searchParams, setSearchParams]);
+
+  useEffect(() => {
     if (!activeDocumentId || routeDocumentId || documents.length === 0) {
       return;
     }
@@ -182,6 +227,35 @@ export default function DocumentsPage() {
     setTitleDraft(activeDocument.title || '');
     setEditorSnapshot(activeDocument.latestSnapshot ? snapshotToTiptapContent(activeDocument.latestSnapshot) : null);
   }, [activeDocument]);
+
+  useEffect(() => {
+    if (!showMemberPanel && !showSharePanel) return;
+    const onPointerDown = (event) => {
+      const target = event.target;
+      if (showMemberPanel && memberPanelRef.current && memberPanelRef.current.contains(target)) return;
+      if (showSharePanel && sharePanelRef.current && sharePanelRef.current.contains(target)) return;
+      setShowMemberPanel(false);
+      setShowSharePanel(false);
+      setSelectedMemberId(null);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [showMemberPanel, showSharePanel]);
+
+  useEffect(() => {
+    if (activeMemberIndex >= filteredMembers.length) {
+      setActiveMemberIndex(0);
+    }
+  }, [activeMemberIndex, filteredMembers.length]);
+
+  const loadMembers = async (documentId) => {
+    const response = await fetchDocumentMembers(documentId);
+    if (!response.ok) {
+      setMembers([]);
+      return;
+    }
+    setMembers(response.data?.data || []);
+  };
 
   const reloadDocument = async (documentId) => {
     const response = await fetchDocumentMetadata(documentId);
@@ -204,6 +278,7 @@ export default function DocumentsPage() {
     if (documentId === activeDocumentId) {
       setEditorSnapshot(metadata.latestSnapshot ? snapshotToTiptapContent(metadata.latestSnapshot) : null);
     }
+    await loadMembers(documentId);
     return metadata;
   };
 
@@ -323,6 +398,63 @@ export default function DocumentsPage() {
     }
   };
 
+  const handleInviteOrUpdateMember = async () => {
+    if (!activeDocument) return;
+    const userId = Number(memberUserId);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      setErrorMessage('请输入有效的用户 ID');
+      return;
+    }
+    const response = await upsertDocumentMember(activeDocument.id, { userId, role: memberRole });
+    if (!response.ok) {
+      setErrorMessage(response.data?.message || '保存成员失败');
+      return;
+    }
+    setMessage('成员已更新');
+    setMemberUserId('');
+    await loadMembers(activeDocument.id);
+  };
+
+  const handleChangeMemberRole = async (userId, nextRole) => {
+    if (!activeDocument) return;
+    const response = await upsertDocumentMember(activeDocument.id, { userId, role: nextRole });
+    if (!response.ok) {
+      setErrorMessage(response.data?.message || '切换成员权限失败');
+      return;
+    }
+    setMessage('成员权限已切换');
+    setSelectedMemberId(null);
+    await loadMembers(activeDocument.id);
+  };
+
+  const handleRemoveMember = async (userId) => {
+    if (!activeDocument) return;
+    const response = await removeDocumentMember(activeDocument.id, userId);
+    if (!response.ok) {
+      setErrorMessage(response.data?.message || '移除成员失败');
+      return;
+    }
+    setMessage('成员已移除');
+    await loadMembers(activeDocument.id);
+  };
+
+  const handleCreateShareLink = async () => {
+    if (!activeDocument) return;
+    const response = await createShareLink(activeDocument.id, { permission: sharePermission });
+    if (!response.ok) {
+      setErrorMessage(response.data?.message || '生成分享链接失败');
+      return;
+    }
+    const data = response.data?.data;
+    if (!data?.shareToken) {
+      setErrorMessage('生成分享链接失败');
+      return;
+    }
+    const absolute = `${window.location.origin}/documents/${activeDocument.id}?shareToken=${data.shareToken}`;
+    setShareLink(absolute);
+    setMessage('分享链接已生成');
+  };
+
   const handleEditorChange = (nextContent) => {
     if (!activeDocument) return;
     const role = documentAccess[activeDocument.id] || normalizeRole(activeDocument.myRole);
@@ -420,12 +552,102 @@ export default function DocumentsPage() {
         <section className="panel editor-stage documents-layout__content">
           <div className="panel-header">
             <div><span className="panel-kicker">Metadata</span><h3>{activeDocument ? '文档详情' : '请选择文档'}</h3></div>
-            <div className="editor-action-group">
+            <div className="editor-action-group" style={{ position: 'relative' }}>
               <article><strong>作者：</strong><span>{activeDocument?.ownerName || '-'}</span></article>
               <article><strong>我的角色：</strong><span>{activeRole === 'no_access' ? '无权限' : activeRole}</span></article>
               <article><strong>更新时间：</strong><span>{activeDocument?.updatedAt ? new Date(activeDocument.updatedAt).toLocaleString() : '-'}</span></article>
               <button type="button" className="secondary-button" onClick={handleRefresh} disabled={!activeDocument}>刷新</button>
               <button type="button" className="secondary-button" onClick={handleDeleteDocument} disabled={!activeDocument || isDeleting || !isEditable || activeRole !== 'owner'}>{isDeleting ? '删除中...' : '删除文档'}</button>
+              {activeRole === 'owner' ? (
+                <>
+                  <div style={{ position: 'relative' }} ref={memberPanelRef}>
+                    <button type="button" className="secondary-button" onClick={() => { setShowMemberPanel((v) => !v); setShowSharePanel(false); }}>管理成员</button>
+                    {showMemberPanel ? (
+                      <div className="panel" style={{ position: 'absolute', right: 0, top: '44px', zIndex: 9999, width: 380, maxHeight: 460, overflow: 'auto' }}>
+                        <h4 style={{ marginTop: 0, marginBottom: 10 }}>成员管理</h4>
+                        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                          <input value={memberUserId} onChange={(e) => setMemberUserId(e.target.value)} placeholder="用户 ID" />
+                          <button type="button" className="secondary-button" onClick={handleInviteOrUpdateMember}>邀请</button>
+                        </div>
+                        <input
+                          value={memberQuery}
+                          onChange={(e) => { setMemberQuery(e.target.value); setActiveMemberIndex(0); }}
+                          placeholder="搜索成员（用户名/ID/权限）"
+                          style={{ marginBottom: 10, width: '100%' }}
+                        />
+                        <div
+                          className="stack-list"
+                          style={{ gap: 6 }}
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (!filteredMembers.length) return;
+                            if (e.key === 'ArrowDown') {
+                              e.preventDefault();
+                              setActiveMemberIndex((i) => Math.min(i + 1, filteredMembers.length - 1));
+                              return;
+                            }
+                            if (e.key === 'ArrowUp') {
+                              e.preventDefault();
+                              setActiveMemberIndex((i) => Math.max(i - 1, 0));
+                              return;
+                            }
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              const m = filteredMembers[activeMemberIndex];
+                              if (m) setSelectedMemberId((current) => (current === m.userId ? null : m.userId));
+                            }
+                            if (e.key === 'Escape') {
+                              setShowMemberPanel(false);
+                              setSelectedMemberId(null);
+                            }
+                          }}
+                        >
+                          {filteredMembers.map((m, index) => (
+                            <div
+                              key={m.userId}
+                              className="stack-list__item"
+                              style={{ cursor: 'default', border: index === activeMemberIndex ? '1px solid var(--accent-9, #6366f1)' : undefined, background: index === activeMemberIndex ? 'rgba(99,102,241,0.06)' : undefined }}
+                            >
+                              <button
+                                type="button"
+                                className="secondary-button"
+                                style={{ width: '100%', textAlign: 'left' }}
+                                onMouseEnter={() => setActiveMemberIndex(index)}
+                                onClick={() => setSelectedMemberId((current) => (current === m.userId ? null : m.userId))}
+                              >
+                                {(m.nickname || `用户${m.userId}`)} · {m.role}
+                              </button>
+                              {selectedMemberId === m.userId && m.role !== 'owner' ? (
+                                <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                                  <button type="button" className="secondary-button" onClick={() => handleChangeMemberRole(m.userId, 'viewer')}>viewer</button>
+                                  <button type="button" className="secondary-button" onClick={() => handleChangeMemberRole(m.userId, 'editor')}>editor</button>
+                                  <button type="button" className="secondary-button" onClick={() => handleChangeMemberRole(m.userId, 'no_access')}>no_access</button>
+                                  <button type="button" className="secondary-button" onClick={() => handleRemoveMember(m.userId)}>移除</button>
+                                </div>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                  <div style={{ position: 'relative' }} ref={sharePanelRef}>
+                    <button type="button" className="secondary-button" onClick={() => { setShowSharePanel((v) => !v); setShowMemberPanel(false); }}>分享邀请链接</button>
+                    {showSharePanel ? (
+                      <div className="panel" style={{ position: 'absolute', right: 0, top: '44px', zIndex: 9999, width: 320 }}>
+                        <h4 style={{ marginTop: 0, marginBottom: 10 }}>分享邀请链接</h4>
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          <button type="button" className="secondary-button" onClick={() => setSharePermission('viewer')}>viewer</button>
+                          <button type="button" className="secondary-button" onClick={() => setSharePermission('editor')}>editor</button>
+                          <button type="button" className="primary-button" onClick={handleCreateShareLink}>生成链接</button>
+                        </div>
+                        <p style={{ margin: '8px 0 0 0', fontSize: 12 }}>当前权限：{sharePermission}</p>
+                        {shareLink ? <input style={{ marginTop: 8, width: '100%' }} value={shareLink} readOnly /> : null}
+                      </div>
+                    ) : null}
+                  </div>
+                </>
+              ) : null}
             </div>
           </div>
 
@@ -455,6 +677,7 @@ export default function DocumentsPage() {
                     </div>
                   ) : null}
                 </div>
+
               </div>
             </div>
           ) : (

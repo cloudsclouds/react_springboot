@@ -35,6 +35,31 @@ export interface CreateDocumentResponse {
   documentId: number;
 }
 
+export interface DocumentMemberData {
+  userId: number;
+  nickname: string;
+  role: 'owner' | 'editor' | 'viewer' | 'no_access';
+  joinedAt?: string;
+  editable?: boolean;
+}
+
+export interface UpsertDocumentMemberPayload {
+  userId: number;
+  role: 'owner' | 'editor' | 'viewer' | 'no_access';
+}
+
+export interface CreateShareLinkPayload {
+  permission?: 'editor' | 'viewer';
+}
+
+export interface ShareLinkData {
+  documentId: number;
+  shareToken: string;
+  shareUrl: string;
+  permission: 'editor' | 'viewer';
+  expireTime?: string;
+}
+
 export async function createDocument(payload: CreateDocumentPayload) {
   return postJson<ApiResponse<CreateDocumentResponse>>('/documents', payload);
 }
@@ -59,6 +84,26 @@ export async function deleteDocument(id: number) {
   return deleteJson<ApiResponse<null>>(`/documents/${id}`);
 }
 
+export async function fetchDocumentMembers(id: number) {
+  return getJson<ApiResponse<DocumentMemberData[]>>(`/documents/${id}/members`);
+}
+
+export async function upsertDocumentMember(id: number, payload: UpsertDocumentMemberPayload) {
+  return postJson<ApiResponse<DocumentMemberData>>(`/documents/${id}/members`, payload);
+}
+
+export async function removeDocumentMember(id: number, userId: number) {
+  return deleteJson<ApiResponse<null>>(`/documents/${id}/members/${userId}`);
+}
+
+export async function createShareLink(id: number, payload: CreateShareLinkPayload = {}) {
+  return postJson<ApiResponse<ShareLinkData>>(`/documents/${id}/share-links`, payload);
+}
+
+export async function joinByShareLink(id: number, shareToken: string) {
+  return postJson<ApiResponse<DocumentMemberData>>(`/documents/${id}/join-by-link`, { shareToken });
+}
+
 export const documentApi = {
   createDocument,
   fetchDocuments,
@@ -66,4 +111,9 @@ export const documentApi = {
   updateDocumentTitle,
   updateDocumentSnapshot,
   deleteDocument,
+  fetchDocumentMembers,
+  upsertDocumentMember,
+  removeDocumentMember,
+  createShareLink,
+  joinByShareLink,
 };
