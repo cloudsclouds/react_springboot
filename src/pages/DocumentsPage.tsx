@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { createDocument, deleteDocument, fetchDocumentMetadata, fetchDocuments, updateDocumentTitle } from '@/api/document';
+import { createDocument, deleteDocument, fetchDocumentMetadata, fetchDocuments, updateDocumentSnapshot, updateDocumentTitle } from '@/api/document';
 import { SimpleEditor } from '@/components/tiptap-templates/simple/simple-editor';
 
 const DEFAULT_NEW_TITLE = '未命名文档';

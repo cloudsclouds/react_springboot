@@ -165,6 +165,7 @@ export function SimpleEditor({ initialContent = content, onContentChange }) {
   const { height } = useWindowSize()
   const [mobileView, setMobileView] = useState("main")
   const toolbarRef = useRef(null)
+  const lastSyncedContentRef = useRef(initialContent)
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -210,6 +211,15 @@ export function SimpleEditor({ initialContent = content, onContentChange }) {
       }
     },
   })
+
+  useEffect(() => {
+    if (!editor || !initialContent || lastSyncedContentRef.current === initialContent) {
+      return
+    }
+
+    editor.commands.setContent(initialContent, false)
+    lastSyncedContentRef.current = initialContent
+  }, [editor, initialContent])
 
   const rect = useCursorVisibility({
     editor,
