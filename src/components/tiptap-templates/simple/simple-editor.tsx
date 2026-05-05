@@ -165,7 +165,6 @@ export function SimpleEditor({ initialContent = content, onContentChange, readOn
   const { height } = useWindowSize()
   const [mobileView, setMobileView] = useState("main")
   const toolbarRef = useRef(null)
-  const lastSyncedContentRef = useRef(initialContent)
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -214,12 +213,22 @@ export function SimpleEditor({ initialContent = content, onContentChange, readOn
   })
 
   useEffect(() => {
-    if (!editor || !initialContent || lastSyncedContentRef.current === initialContent) {
+    if (!editor || !initialContent) {
+      return
+    }
+
+    if (editor.isFocused) {
+      return
+    }
+
+    const currentSerialized = JSON.stringify(editor.getJSON())
+    const nextSerialized = JSON.stringify(initialContent)
+
+    if (currentSerialized === nextSerialized) {
       return
     }
 
     editor.commands.setContent(initialContent, false)
-    lastSyncedContentRef.current = initialContent
   }, [editor, initialContent])
 
   const rect = useCursorVisibility({
