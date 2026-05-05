@@ -97,6 +97,12 @@ public class DocumentServiceImpl implements DocumentService {
   }
 
   @Override
+  public ApiResponse<DocumentResponse> getDocumentMetadataForUser(Long id, Long userId) {
+    if (userId == null) return ApiResponse.error("未认证用户");
+    return buildDocumentResponse(id, userId, false);
+  }
+
+  @Override
   @Transactional
   public ApiResponse<String> updateDocumentTitle(Long id, UpdateDocumentRequest request) {
     Long userId = UserContext.getUserId();

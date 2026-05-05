@@ -16,6 +16,7 @@ public interface DocumentService {
   ApiResponse<Map<String, Long>> createDocument(CreateDocumentRequest request);
   ApiResponse<List<DocumentResponse>> getDocumentList();
   ApiResponse<DocumentResponse> getDocumentMetadata(Long id);
+  ApiResponse<DocumentResponse> getDocumentMetadataForUser(Long id, Long userId);
   ApiResponse<String> updateDocumentTitle(Long id, UpdateDocumentRequest request);
   ApiResponse<String> updateDocumentSnapshot(Long id, UpdateDocumentRequest request);
   ApiResponse<String> deleteDocument(Long id);

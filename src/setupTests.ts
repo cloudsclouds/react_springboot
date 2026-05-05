@@ -70,11 +70,3 @@ jest.mock('@tiptap/react', () => {
 		EditorContent: () => React.createElement('div', { 'data-testid': 'tiptap-editor-content' }),
 	};
 });
-
-jest.mock('./pages/OnlineEditorPage', () => {
-	const React = require('react');
-
-	return function MockOnlineEditorPage() {
-		return React.createElement('h1', null, 'TipTap Editor');
-	};
-});

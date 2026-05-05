@@ -14,6 +14,7 @@ const ROLE_ORDER = {
 };
 
 const DEFAULT_NEW_TITLE = '未命名文档';
+const WS_BASE_URL = process.env.REACT_APP_WS_URL || 'ws://localhost:8080/ws/collaboration';
 
 function parseSnapshot(snapshot) {
   if (!snapshot) return null;
@@ -35,6 +36,21 @@ function canRole(role, requiredRole) {
   const current = ROLE_ORDER[normalizeRole(role)] || 0;
   const required = ROLE_ORDER[normalizeRole(requiredRole)] || 0;
   return current >= required;
+}
+
+function getStoredUser() {
+  try {
+    const raw = localStorage.getItem('paperdesk-user');
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function getAuthToken() {
+  const storedUser = getStoredUser();
+  if (storedUser?.token) return storedUser.token;
+  return localStorage.getItem('token') || '';
 }
 
 function snapshotToTiptapContent(snapshot) {
@@ -95,6 +111,11 @@ export default function DocumentsPage() {
   const [selectedMemberId, setSelectedMemberId] = useState(null);
   const [memberQuery, setMemberQuery] = useState('');
   const [activeMemberIndex, setActiveMemberIndex] = useState(0);
+  const [wsStatus, setWsStatus] = useState('disconnected');
+  const [wsLog, setWsLog] = useState([]);
+  const [broadcastText, setBroadcastText] = useState('');
+  const [remoteMessage, setRemoteMessage] = useState('');
+  const socketRef = useRef(null);
   const memberPanelRef = useRef(null);
   const sharePanelRef = useRef(null);
 
@@ -488,7 +509,102 @@ export default function DocumentsPage() {
           : document
       )
     );
+
+    if (socketRef.current?.readyState === WebSocket.OPEN) {
+      socketRef.current.send(
+        JSON.stringify({
+          type: 'awareness',
+          docId: activeDocument.id,
+          payload: {
+            snapshot: JSON.stringify(nextContent),
+            source: 'local',
+            updatedAt: new Date().toISOString(),
+          },
+        })
+      );
+    }
   };
+
+  useEffect(() => {
+    if (!activeDocument?.id) return;
+
+    const token = getAuthToken();
+    const socket = new WebSocket(`${WS_BASE_URL}?token=${encodeURIComponent(token)}&docId=${activeDocument.id}`);
+    socketRef.current = socket;
+    setWsStatus('connecting');
+
+    socket.onopen = () => {
+      setWsStatus('connected');
+      setWsLog((current) => [`已连接文档 ${activeDocument.id}`, ...current].slice(0, 10));
+      socket.send(JSON.stringify({ type: 'ping', docId: activeDocument.id, payload: {} }));
+    };
+
+    socket.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        setWsLog((current) => [`${message.type}: ${JSON.stringify(message.payload || {})}`, ...current].slice(0, 10));
+
+        if (message.type === 'sync') {
+          const snapshot = message.payload?.latestSnapshot || message.payload?.snapshot || message.payload;
+          if (snapshot) {
+            const nextSnapshot = typeof snapshot === 'string' ? snapshotToTiptapContent(snapshot) : snapshot;
+            setEditorSnapshot(nextSnapshot);
+            setDocuments((currentDocuments) =>
+              currentDocuments.map((document) =>
+                document.id === activeDocument.id
+                  ? {
+                      ...document,
+                      latestSnapshot: typeof snapshot === 'string' ? snapshot : JSON.stringify(snapshot),
+                    }
+                  : document
+              )
+            );
+            setRemoteMessage(message.payload?.source === 'local' ? '已同步当前文档内容' : `已收到文档 ${activeDocument.id} 初始内容`);
+          }
+        }
+
+        if (message.type === 'pong') {
+          setRemoteMessage('WebSocket 心跳正常');
+        }
+
+        if (message.type === 'awareness' || message.type === 'rollback') {
+          const snapshot = message.payload?.snapshot;
+          if (snapshot) {
+            const nextSnapshot = typeof snapshot === 'string' ? snapshotToTiptapContent(snapshot) : snapshot;
+            setEditorSnapshot(nextSnapshot);
+            setDocuments((currentDocuments) =>
+              currentDocuments.map((document) =>
+                document.id === activeDocument.id
+                  ? {
+                      ...document,
+                      latestSnapshot: typeof snapshot === 'string' ? snapshot : JSON.stringify(snapshot),
+                    }
+                  : document
+              )
+            );
+            setRemoteMessage(`已同步文档 ${activeDocument.id} 的实时改动`);
+          } else {
+            setRemoteMessage(`收到 ${message.type} 广播`);
+          }
+        }
+      } catch (error) {
+        console.warn('WebSocket message parse failed', error);
+      }
+    };
+
+    socket.onerror = () => {
+      setWsStatus('error');
+      setWsLog((current) => ['WebSocket 连接错误', ...current].slice(0, 10));
+    };
+
+    socket.onclose = () => {
+      setWsStatus('disconnected');
+    };
+
+    return () => {
+      socket.close();
+    };
+  }, [activeDocument?.id]);
 
   const handleSaveSnapshot = async () => {
     if (!activeDocument) return;
@@ -516,12 +632,30 @@ export default function DocumentsPage() {
       if (!response.ok) throw new Error(response.data?.message || '保存文档内容失败');
       setMessage('文档内容已保存');
       await reloadDocument(activeDocument.id).catch(() => null);
+      if (socketRef.current?.readyState === WebSocket.OPEN) {
+        socketRef.current.send(JSON.stringify({ type: 'save', docId: activeDocument.id, payload: { snapshot: JSON.stringify(currentContent) } }));
+      }
     } catch (error) {
       if (error instanceof Error && /没有权限|权限/i.test(error.message)) setAccessDeniedDocumentId(activeDocument.id);
       setErrorMessage(error instanceof Error ? error.message : '保存文档内容失败');
     } finally {
       setIsSavingSnapshot(false);
     }
+  };
+
+  const sendBroadcast = () => {
+    if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return;
+    socketRef.current.send(
+      JSON.stringify({
+        type: 'awareness',
+        docId: activeDocument?.id,
+        payload: {
+          message: broadcastText || `来自页面 ${activeDocument?.id} 的测试广播`,
+          sender: 'frontend',
+        },
+      })
+    );
+    setBroadcastText('');
   };
 
   if (isLoading) {
@@ -706,6 +840,39 @@ export default function DocumentsPage() {
                 </label>
                 <button type="button" className="primary-button" onClick={handleSaveTitle} disabled={isSaving || !isEditable}>{isSaving ? '保存中...' : '保存标题'}</button>
                 <button type="button" className="secondary-button" onClick={handleSaveSnapshot} disabled={isSavingSnapshot || !isEditable}>{isSavingSnapshot ? '内容保存中...' : '保存内容（Ctrl+S）'}</button>
+              </div>
+
+              <div className="panel" style={{ marginBottom: 16 }}>
+                <div className="online-editor-ws-panel">
+                  <div className="online-editor-ws-status">
+                    <strong>WebSocket 状态</strong>
+                    <span>{wsStatus === 'connected' ? '已连接' : wsStatus === 'connecting' ? '连接中' : wsStatus === 'error' ? '连接错误' : '未连接'}</span>
+                  </div>
+                  <div className="online-editor-ws-status">
+                    <strong>最近消息</strong>
+                    <span>{remoteMessage || '等待服务端消息'}</span>
+                  </div>
+                  <div className="online-editor-ws-status">
+                    <strong>当前文档</strong>
+                    <span>{activeDocument.title || `文档 ${activeDocument.id}`}</span>
+                  </div>
+                  <div className="online-editor-ws-compose">
+                    <input
+                      className="online-editor-title-input"
+                      value={broadcastText}
+                      onChange={(event) => setBroadcastText(event.target.value)}
+                      placeholder="输入一条测试广播消息"
+                    />
+                    <button type="button" className="theme-toggle" onClick={sendBroadcast}>
+                      发送测试消息
+                    </button>
+                  </div>
+                  <div className="online-editor-ws-log" aria-label="WebSocket 日志">
+                    {wsLog.map((item, index) => (
+                      <div key={`${index}-${item}`}>{item}</div>
+                    ))}
+                  </div>
+                </div>
               </div>
 
               <div className="document-detail__body">

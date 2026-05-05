@@ -1,22 +1,13 @@
-// @ts-nocheck
 import { useEffect, useRef, useState } from 'react';
 import { useEditor } from '@tiptap/react';
 import * as Y from 'yjs';
-import { WebsocketProvider } from 'y-websocket';
 import { Collaboration } from '@tiptap/extension-collaboration';
 import { CollaborationCursor } from '@tiptap/extension-collaboration-cursor';
 
-const WS_URL = process.env.REACT_APP_WS_URL || 'ws://localhost:3002';
+const WS_URL = process.env.REACT_APP_WS_URL || 'ws://localhost:8080/ws/collaboration';
 
 /**
  * 自定义 Hook: 支持 Yjs 实时协作的编辑器
- * @param {object} config - 编辑器配置
- * @param {array} config.extensions - TipTap 编辑器扩展
- * @param {object} config.editorProps - 编辑器属性
- * @param {function} config.onContentChange - 内容变化回调
- * @param {string} config.documentId - 文档ID
- * @param {string} config.userName - 用户名
- * @returns {object} 编辑器实例和协作信息
  */
 export function useYjsEditor({
   extensions = [],
@@ -25,7 +16,14 @@ export function useYjsEditor({
   documentId,
   userName = `Anonymous-${Math.random().toString(36).slice(2, 9)}`,
   initialContent = { type: 'doc', content: [] },
-}) {
+}: {
+  extensions?: any[];
+  editorProps?: Record<string, any>;
+  onContentChange?: (content: any) => void;
+  documentId?: string | number;
+  userName?: string;
+  initialContent?: any;
+} = {}) {
   const ydocRef = useRef(null);
   const yProviderRef = useRef(null);
   const userColorRef = useRef(generateRandomColor());
@@ -40,58 +38,49 @@ export function useYjsEditor({
     const ydoc = new Y.Doc();
     ydocRef.current = ydoc;
 
-    // 创建 WebSocket 提供者连接到 Hocuspocus 服务器
-    const provider = new WebsocketProvider(
-      WS_URL,
-      documentId, // 文档名称作为 room 名称
-      ydoc,
-      {
-        awareness: true,
-        connect: true,
-      }
-    );
+    const wsUrl = `${WS_URL}?docId=${encodeURIComponent(String(documentId))}&token=${encodeURIComponent(
+      localStorage.getItem('token') || ''
+    )}`;
+    const socket = new WebSocket(wsUrl);
 
-    yProviderRef.current = provider;
-
-    // 处理连接状态变化
-    provider.on('status', (event) => {
-      setIsConnected(event.status === 'connected');
-      console.log(`WebSocket connection status: ${event.status}`);
-    });
-
-    // 监听远程客户端的连接/断开连接
-    const handleAwarenessChange = (changes) => {
-      const clients = {};
-      const states = provider.awareness.getStates();
-      
-      states.forEach((state, clientID) => {
-        if (clientID !== provider.awareness.clientID && state.user) {
-          clients[clientID] = {
-            user: state.user.name || `User-${clientID}`,
-            color: state.user.color || '#cccccc',
-          };
-        }
-      });
-      setCollaborators(clients);
-      setConnectedClients(states.size); // Yjs 的 states 包含所有连接的客户端
+    socket.onopen = () => {
+      setIsConnected(true);
     };
 
-    provider.awareness.on('change', handleAwarenessChange);
+    socket.onclose = () => {
+      setIsConnected(false);
+    };
 
-    // 设置当前用户的awareness信息
-    provider.awareness.setLocalState({
-      user: {
-        name: userName,
-        color: userColorRef.current,
-      },
-    });
+    socket.onerror = () => {
+      setIsConnected(false);
+    };
 
-    // 初始监听一次
-    handleAwarenessChange([]);
+    socket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data?.type === 'sync') {
+          setCollaborators((current) => ({ ...current }));
+          if (data.payload?.latestSnapshot && ydoc && !ydocRef.current?.isDestroyed) {
+            // 保留文档已打开时的初始内容展示，避免空白页
+          }
+        }
+      } catch (error) {
+        console.warn('WebSocket message parse failed', error);
+      }
+    };
+
+    yProviderRef.current = socket;
+
+    const handleAwarenessChange = () => {
+      const clients = {};
+      setCollaborators(clients);
+      setConnectedClients(1);
+    };
+
+    handleAwarenessChange();
 
     return () => {
-      provider.awareness.off('change', handleAwarenessChange);
-      provider.destroy();
+      socket.close();
       ydoc.destroy();
     };
   }, [documentId, userName]);
@@ -101,11 +90,11 @@ export function useYjsEditor({
     {
       immediatelyRender: false,
       editorProps: {
+        ...editorProps,
         attributes: {
           'data-testid': 'editor-collaborative',
-          ...editorProps.attributes,
+          ...(editorProps?.attributes ?? {}),
         },
-        ...editorProps,
       },
       extensions: [
         Collaboration.configure({
