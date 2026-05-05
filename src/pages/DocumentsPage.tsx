@@ -115,6 +115,8 @@ export default function DocumentsPage() {
   const [wsLog, setWsLog] = useState([]);
   const [broadcastText, setBroadcastText] = useState('');
   const [remoteMessage, setRemoteMessage] = useState('');
+  const [onlineCount, setOnlineCount] = useState(null);
+  const [onlineUserIds, setOnlineUserIds] = useState([]);
   const socketRef = useRef(null);
   const memberPanelRef = useRef(null);
   const sharePanelRef = useRef(null);
@@ -128,6 +130,19 @@ export default function DocumentsPage() {
   const activeRole = normalizeRole(documentAccess[activeDocument?.id] || activeDocument?.myRole || 'no_access');
   const isReadOnly = activeRole === 'viewer';
   const isEditable = activeRole === 'editor' || activeRole === 'owner';
+  const onlineUsers = useMemo(() => {
+    const memberMap = new Map(members.map((member) => [member.userId, member]));
+    const currentUser = getStoredUser();
+    return onlineUserIds.map((userId) => {
+      const member = memberMap.get(userId);
+      const nickname = member?.nickname || member?.realName || (currentUser?.userId === userId ? currentUser?.nickname || currentUser?.username || '我' : '');
+      return {
+        userId,
+        name: nickname || `用户${userId}`,
+        role: member?.role || '',
+      };
+    });
+  }, [members, onlineUserIds]);
   const filteredMembers = useMemo(() => {
     const q = memberQuery.trim().toLowerCase();
     if (!q) return members;
@@ -536,6 +551,9 @@ export default function DocumentsPage() {
     socket.onopen = () => {
       setWsStatus('connected');
       setWsLog((current) => [`已连接文档 ${activeDocument.id}`, ...current].slice(0, 10));
+      setRemoteMessage('WebSocket 状态已连接');
+      setOnlineCount((current) => current ?? 1);
+      setOnlineUserIds((current) => (current.length > 0 ? current : [getStoredUser()?.id || getStoredUser()?.userId].filter(Boolean)));
       socket.send(JSON.stringify({ type: 'ping', docId: activeDocument.id, payload: {} }));
     };
 
@@ -565,6 +583,13 @@ export default function DocumentsPage() {
 
         if (message.type === 'pong') {
           setRemoteMessage('WebSocket 心跳正常');
+        }
+
+        if (message.type === 'onlineCount') {
+          const count = Number(message.payload?.count ?? 0);
+          setOnlineCount(Number.isFinite(count) ? Math.max(count, 1) : 1);
+          setOnlineUserIds(Array.isArray(message.payload?.userIds) ? message.payload.userIds : []);
+          setRemoteMessage('WebSocket 状态已连接');
         }
 
         if (message.type === 'awareness' || message.type === 'rollback') {
@@ -843,34 +868,17 @@ export default function DocumentsPage() {
               </div>
 
               <div className="panel" style={{ marginBottom: 16 }}>
-                <div className="online-editor-ws-panel">
+                <div className="online-editor-ws-panel online-editor-ws-panel--compact">
                   <div className="online-editor-ws-status">
                     <strong>WebSocket 状态</strong>
                     <span>{wsStatus === 'connected' ? '已连接' : wsStatus === 'connecting' ? '连接中' : wsStatus === 'error' ? '连接错误' : '未连接'}</span>
                   </div>
-                  <div className="online-editor-ws-status">
-                    <strong>最近消息</strong>
-                    <span>{remoteMessage || '等待服务端消息'}</span>
-                  </div>
-                  <div className="online-editor-ws-status">
-                    <strong>当前文档</strong>
-                    <span>{activeDocument.title || `文档 ${activeDocument.id}`}</span>
-                  </div>
-                  <div className="online-editor-ws-compose">
-                    <input
-                      className="online-editor-title-input"
-                      value={broadcastText}
-                      onChange={(event) => setBroadcastText(event.target.value)}
-                      placeholder="输入一条测试广播消息"
-                    />
-                    <button type="button" className="theme-toggle" onClick={sendBroadcast}>
-                      发送测试消息
-                    </button>
-                  </div>
-                  <div className="online-editor-ws-log" aria-label="WebSocket 日志">
-                    {wsLog.map((item, index) => (
-                      <div key={`${index}-${item}`}>{item}</div>
-                    ))}
+                  <div className="online-editor-ws-status online-editor-ws-status--compact">
+                    <strong>在线状态</strong>
+                    <div className="online-editor-ws-status__meta">
+                      <span className="online-editor-ws-status__count">{onlineCount === null ? '连接中...' : `在线 ${Math.max(onlineCount, 1)} 人`}</span>
+                      <span className="online-editor-ws-status__sub">{onlineUsers.length > 0 ? `当前在线：${onlineUsers.map((user) => user.name).join('、')}` : '当前在线：我'}</span>
+                    </div>
                   </div>
                 </div>
               </div>

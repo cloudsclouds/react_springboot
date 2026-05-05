@@ -554,6 +554,43 @@ input {
   display: grid;
 }
 
+.online-editor-ws-panel--compact {
+  display: grid;
+  gap: 14px;
+}
+
+.online-editor-ws-status--compact {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: color-mix(in oklab, var(--shell-surface-strong) 92%, transparent);
+  border: 1px solid var(--shell-border);
+}
+
+.online-editor-ws-status__meta {
+  display: grid;
+  gap: 6px;
+}
+
+.online-editor-ws-status__count {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--shell-accent) 16%, transparent);
+  color: var(--shell-accent-strong);
+  font-weight: 700;
+}
+
+.online-editor-ws-status__sub {
+  color: var(--shell-muted);
+  line-height: 1.5;
+}
+
 .document-content-placeholder {
   display: grid;
   gap: 12px;

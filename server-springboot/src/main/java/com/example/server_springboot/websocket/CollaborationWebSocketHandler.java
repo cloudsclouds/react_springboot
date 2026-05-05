@@ -36,12 +36,15 @@ public class CollaborationWebSocketHandler extends TextWebSocketHandler {
     sessionManager.addSession(docId, session);
 
     Long userId = (Long) session.getAttributes().get("userId");
+    sessionManager.addUser(docId, userId);
     ApiResponse<DocumentResponse> response = documentService.getDocumentMetadataForUser(docId, userId);
     Map<String, Object> message = new HashMap<>();
     message.put("type", "sync");
     message.put("docId", docId);
     message.put("payload", response.isSuccess() ? response.getData() : Map.of("message", response.getMessage()));
     send(session, message);
+    sendOnlineCount(docId, session);
+    broadcastOnlineCount(docId, session);
   }
 
   @Override
@@ -58,6 +61,8 @@ public class CollaborationWebSocketHandler extends TextWebSocketHandler {
 
     if ("sync".equalsIgnoreCase(type) || "awareness".equalsIgnoreCase(type)) {
       broadcast(docId, enrichIncoming(incoming, userId), session);
+      sendOnlineCount(docId, session);
+      broadcastOnlineCount(docId, session);
       return;
     }
 
@@ -68,6 +73,8 @@ public class CollaborationWebSocketHandler extends TextWebSocketHandler {
 
     if ("rollback".equalsIgnoreCase(type)) {
       broadcast(docId, enrichIncoming(incoming, userId), session);
+      sendOnlineCount(docId, session);
+      broadcastOnlineCount(docId, session);
       return;
     }
 
@@ -81,8 +88,10 @@ public class CollaborationWebSocketHandler extends TextWebSocketHandler {
   @Override
   public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
     Long docId = (Long) session.getAttributes().get("docId");
+    Long userId = (Long) session.getAttributes().get("userId");
     if (docId != null) {
       sessionManager.removeSession(docId, session);
+      sessionManager.removeUser(docId, userId);
     }
   }
 
@@ -137,6 +146,33 @@ public class CollaborationWebSocketHandler extends TextWebSocketHandler {
     payload.putIfAbsent("payload", Map.of());
     payload.putIfAbsent("userId", userId);
     return payload;
+  }
+
+  private void sendOnlineCount(Long docId, WebSocketSession session) throws IOException {
+    send(session, Map.of(
+        "type", "onlineCount",
+        "docId", docId,
+        "payload", Map.of(
+            "count", sessionManager.getOnlineCount(docId),
+            "userIds", sessionManager.getUserIdsByDoc(docId),
+            "docId", docId,
+            "status", "connected"
+        )
+    ));
+  }
+
+  private void broadcastOnlineCount(Long docId, WebSocketSession source) throws IOException {
+    Map<String, Object> payload = Map.of(
+        "count", sessionManager.getOnlineCount(docId),
+        "userIds", sessionManager.getUserIdsByDoc(docId),
+        "docId", docId,
+        "status", "connected"
+    );
+    for (WebSocketSession docSession : sessionManager.getSessions(docId)) {
+      if (docSession.isOpen() && !docSession.getId().equals(source.getId())) {
+        send(docSession, Map.of("type", "onlineCount", "docId", docId, "payload", payload));
+      }
+    }
   }
 
   private void broadcast(Long docId, Map<String, Object> message, WebSocketSession source) throws IOException {
