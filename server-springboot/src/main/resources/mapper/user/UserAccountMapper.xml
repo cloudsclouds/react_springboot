@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+  PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+  "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.example.server_springboot.user.mapper.UserAccountMapper">
+
+  <!--
+    按邮箱查询用户（用于登录、注册前判重）。
+    parameterType: 邮箱字符串
+    resultType: UserAccount 实体
+  -->
+  <select id="findByEmail" parameterType="string" resultType="com.example.server_springboot.user.entity.UserAccount">
+    SELECT id, username, email, password, nickname
+    FROM users
+    WHERE email = #{email}
+    LIMIT 1
+  </select>
+
+  <!--
+    按主键 ID 查询用户（用于业务侧根据 userId 回查用户信息）。
+    parameterType: 用户 ID
+    resultType: UserAccount 实体
+  -->
+  <select id="findById" parameterType="long" resultType="com.example.server_springboot.user.entity.UserAccount">
+    SELECT id, username, email, password, nickname
+    FROM users
+    WHERE id = #{id}
+    LIMIT 1
+  </select>
+
+  <!--
+    新增用户。
+    useGeneratedKeys=true + keyProperty=id 表示使用数据库自增主键回填到 userAccount.id。
+  -->
+  <insert id="insertUser" parameterType="com.example.server_springboot.user.entity.UserAccount" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO users (username, email, password, nickname)
+    VALUES (#{username}, #{email}, #{password}, #{nickname})
+  </insert>
+
+</mapper>

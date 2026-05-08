@@ -16,7 +16,7 @@ import com.example.server_springboot.entity.ShareLink;
 import com.example.server_springboot.mapper.DocumentMapper;
 import com.example.server_springboot.mapper.DocumentMemberMapper;
 import com.example.server_springboot.mapper.ShareLinkMapper;
-import com.example.server_springboot.mapper.UserAccountMapper;
+import com.example.server_springboot.user.mapper.UserAccountMapper;
 import com.example.server_springboot.service.DocumentService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;

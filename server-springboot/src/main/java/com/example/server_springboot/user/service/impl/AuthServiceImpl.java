@@ -1,16 +1,15 @@
-package com.example.server_springboot.service.impl;
+package com.example.server_springboot.user.service.impl;
 
 import com.example.server_springboot.util.JwtUtils;
-
-import com.example.server_springboot.dto.LoginRequest;
-import com.example.server_springboot.dto.LoginResponse;
-import com.example.server_springboot.dto.RegisterCodeRequest;
-import com.example.server_springboot.dto.RegisterCodeResponse;
-import com.example.server_springboot.dto.RegisterRequest;
-import com.example.server_springboot.dto.RegisterResponse;
-import com.example.server_springboot.entity.UserAccount;
-import com.example.server_springboot.mapper.UserAccountMapper;
-import com.example.server_springboot.service.AuthService;
+import com.example.server_springboot.user.dto.LoginRequest;
+import com.example.server_springboot.user.dto.LoginResponse;
+import com.example.server_springboot.user.dto.RegisterCodeRequest;
+import com.example.server_springboot.user.dto.RegisterCodeResponse;
+import com.example.server_springboot.user.dto.RegisterRequest;
+import com.example.server_springboot.user.dto.RegisterResponse;
+import com.example.server_springboot.user.entity.UserAccount;
+import com.example.server_springboot.user.mapper.UserAccountMapper;
+import com.example.server_springboot.user.service.AuthService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;

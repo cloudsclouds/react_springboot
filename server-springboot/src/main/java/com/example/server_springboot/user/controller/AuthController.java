@@ -1,12 +1,12 @@
-package com.example.server_springboot.controller;
+package com.example.server_springboot.user.controller;
 
-import com.example.server_springboot.dto.LoginRequest;
-import com.example.server_springboot.dto.LoginResponse;
-import com.example.server_springboot.dto.RegisterCodeRequest;
-import com.example.server_springboot.dto.RegisterCodeResponse;
-import com.example.server_springboot.dto.RegisterRequest;
-import com.example.server_springboot.dto.RegisterResponse;
-import com.example.server_springboot.service.AuthService;
+import com.example.server_springboot.user.dto.LoginRequest;
+import com.example.server_springboot.user.dto.LoginResponse;
+import com.example.server_springboot.user.dto.RegisterCodeRequest;
+import com.example.server_springboot.user.dto.RegisterCodeResponse;
+import com.example.server_springboot.user.dto.RegisterRequest;
+import com.example.server_springboot.user.dto.RegisterResponse;
+import com.example.server_springboot.user.service.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;

@@ -1,6 +1,6 @@
-package com.example.server_springboot.mapper;
+package com.example.server_springboot.user.mapper;
 
-import com.example.server_springboot.entity.UserAccount;
+import com.example.server_springboot.user.entity.UserAccount;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 

@@ -1,12 +1,12 @@
-package com.example.server_springboot.dto;
+package com.example.server_springboot.user.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
 
 @Data
 @AllArgsConstructor
-public class RegisterResponse {
+public class RegisterCodeResponse {
   private boolean success;
   private String message;
-  private Long userId;
+  private String code;
 }
