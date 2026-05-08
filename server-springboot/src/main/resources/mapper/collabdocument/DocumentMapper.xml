@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.example.server_springboot.mapper.DocumentMapper">
+<mapper namespace="com.example.server_springboot.collabdocument.mapper.DocumentMapper">
 
   <insert id="insertDocument" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO documents (title, owner_id, owner_name, latest_snapshot, version, status, created_at, updated_at)
     VALUES (#{title}, #{ownerId}, #{ownerName}, #{latestSnapshot}, 1, 0, NOW(), NOW())
   </insert>
 
-  <select id="findById" resultType="com.example.server_springboot.entity.Document">
+  <select id="findById" resultType="com.example.server_springboot.collabdocument.entity.Document">
     SELECT * FROM documents WHERE id = #{id}
   </select>
 
-  <select id="findUserDocuments" resultType="com.example.server_springboot.dto.DocumentResponse">
+  <select id="findUserDocuments" resultType="com.example.server_springboot.collabdocument.dto.DocumentResponse">
     SELECT 
       d.id, 
       d.title, 

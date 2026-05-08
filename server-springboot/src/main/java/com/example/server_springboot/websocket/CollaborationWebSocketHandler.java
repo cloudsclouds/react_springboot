@@ -1,9 +1,9 @@
 package com.example.server_springboot.websocket;
 
 import com.example.server_springboot.dto.ApiResponse;
-import com.example.server_springboot.dto.DocumentResponse;
-import com.example.server_springboot.dto.UpdateDocumentRequest;
-import com.example.server_springboot.service.DocumentService;
+import com.example.server_springboot.collabdocument.dto.DocumentResponse;
+import com.example.server_springboot.collabdocument.dto.UpdateDocumentRequest;
+import com.example.server_springboot.collabdocument.service.DocumentService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;

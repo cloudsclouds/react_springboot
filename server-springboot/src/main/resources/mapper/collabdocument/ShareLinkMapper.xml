@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.example.server_springboot.mapper.ShareLinkMapper">
+<mapper namespace="com.example.server_springboot.collabdocument.mapper.ShareLinkMapper">
 
   <insert id="insert" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO share_links (document_id, share_token, permission, expire_time, created_at)
     VALUES (#{documentId}, #{shareToken}, #{permission}, #{expireTime}, NOW())
   </insert>
 
-  <select id="findByDocumentId" resultType="com.example.server_springboot.entity.ShareLink">
+  <select id="findByDocumentId" resultType="com.example.server_springboot.collabdocument.entity.ShareLink">
     SELECT id, document_id, share_token, permission, expire_time, created_at
     FROM share_links
     WHERE document_id = #{documentId}
@@ -15,7 +15,7 @@
     LIMIT 1
   </select>
 
-  <select id="findByShareToken" resultType="com.example.server_springboot.entity.ShareLink">
+  <select id="findByShareToken" resultType="com.example.server_springboot.collabdocument.entity.ShareLink">
     SELECT id, document_id, share_token, permission, expire_time, created_at
     FROM share_links
     WHERE share_token = #{shareToken}

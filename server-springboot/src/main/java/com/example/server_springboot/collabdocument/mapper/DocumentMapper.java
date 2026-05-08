@@ -1,7 +1,7 @@
-package com.example.server_springboot.mapper;
+package com.example.server_springboot.collabdocument.mapper;
 
-import com.example.server_springboot.dto.DocumentResponse;
-import com.example.server_springboot.entity.Document;
+import com.example.server_springboot.collabdocument.dto.DocumentResponse;
+import com.example.server_springboot.collabdocument.entity.Document;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import java.util.List;

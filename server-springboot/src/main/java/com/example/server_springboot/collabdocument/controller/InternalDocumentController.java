@@ -1,8 +1,8 @@
-package com.example.server_springboot.controller;
+package com.example.server_springboot.collabdocument.controller;
 
 import com.example.server_springboot.dto.ApiResponse;
-import com.example.server_springboot.dto.DocumentResponse;
-import com.example.server_springboot.service.DocumentService;
+import com.example.server_springboot.collabdocument.dto.DocumentResponse;
+import com.example.server_springboot.collabdocument.service.DocumentService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;

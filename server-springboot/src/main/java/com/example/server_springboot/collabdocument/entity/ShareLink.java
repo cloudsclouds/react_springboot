@@ -1,14 +1,15 @@
-package com.example.server_springboot.dto;
+package com.example.server_springboot.collabdocument.entity;
 
 import lombok.Data;
 
 import java.time.LocalDateTime;
 
 @Data
-public class ShareLinkResponse {
+public class ShareLink {
+  private Long id;
   private Long documentId;
   private String shareToken;
-  private String shareUrl;
   private String permission;
   private LocalDateTime expireTime;
+  private LocalDateTime createdAt;
 }

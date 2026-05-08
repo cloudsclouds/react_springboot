@@ -1,4 +1,4 @@
-package com.example.server_springboot.dto;
+package com.example.server_springboot.collabdocument.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;

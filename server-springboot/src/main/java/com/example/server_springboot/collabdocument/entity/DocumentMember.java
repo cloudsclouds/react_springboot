@@ -1,4 +1,4 @@
-package com.example.server_springboot.entity;
+package com.example.server_springboot.collabdocument.entity;
 
 import lombok.Data;
 import java.time.LocalDateTime;
