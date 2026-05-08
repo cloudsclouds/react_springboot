@@ -3,6 +3,7 @@ package com.example.server_springboot.ai.controller;
 import com.example.server_springboot.ai.dto.ChatStreamRequest;
 import com.example.server_springboot.ai.dto.CreateConversationRequest;
 import com.example.server_springboot.ai.dto.CreateConversationResponse;
+import com.example.server_springboot.ai.dto.StopGenerationRequest;
 import com.example.server_springboot.ai.service.AiChatService;
 import com.example.server_springboot.ai.service.AiConversationService;
 import com.example.server_springboot.context.UserContext;
@@ -30,5 +31,10 @@ public class AiController {
   @PostMapping(value = "/chat/stream", produces = "text/event-stream")
   public SseEmitter streamChat(@Valid @RequestBody ChatStreamRequest request) {
     return aiChatService.streamChat(request, UserContext.getUserId());
+  }
+
+  @PostMapping("/chat/stop")
+  public void stopGeneration(@Valid @RequestBody StopGenerationRequest request) {
+    aiChatService.stopGeneration(request.getConversationId(), UserContext.getUserId());
   }
 }

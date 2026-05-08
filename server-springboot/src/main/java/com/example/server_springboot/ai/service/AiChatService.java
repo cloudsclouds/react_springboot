@@ -5,4 +5,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 public interface AiChatService {
   SseEmitter streamChat(ChatStreamRequest request, Long userId);
+
+  void stopGeneration(Long conversationId, Long userId);
 }
