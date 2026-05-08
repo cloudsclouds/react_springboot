@@ -77,22 +77,36 @@
 
 ### 3.1 大模型配置
 
-由于你后续会自己填写大模型信息，建议统一放到配置文件中，例如：
+当前后端已改为按百炼 DashScope Java SDK 方式接入，配置统一放在 `application.properties` 中：
 
-- `api-key`
-- `base-url`
-- `model-name`
-- `temperature`
-- `max-tokens`
+- `ai.api-key`
+- `ai.base-url`
+- `ai.model-name`
+- `ai.temperature`
+- `ai.max-tokens`
 
 示例：
 
 ```properties
-ai.api-key=your-api-key
-ai.base-url=https://your-model-base-url
-ai.model-name=your-model-name
+ai.api-key=${DASHSCOPE_API_KEY:}
+ai.base-url=https://dashscope.aliyuncs.com/compatible-mode/v1
+ai.model-name=qwen-plus
 ai.temperature=0.7
 ai.max-tokens=2048
+```
+
+### 3.2 SDK 版本管理
+
+DashScope SDK 版本建议使用 `2.12.0` 或更高版本，以保证与示例代码和百炼接口兼容。
+
+业务依赖直接声明坐标和版本：
+
+```xml
+<dependency>
+  <groupId>com.alibaba</groupId>
+  <artifactId>dashscope-sdk-java</artifactId>
+  <version>2.12.0</version>
+</dependency>
 ```
 
 ## 4. 数据存储

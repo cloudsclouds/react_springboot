@@ -19,6 +19,10 @@ Treat the files in `docs/` as the source of truth for:
 
 If code must change, the related documentation must be reviewed and updated in the same task.
 
+- Treat SQL files under `server-springboot/sql/` as part of the source of truth for schema structure, initialization data, indexes, migration scripts, and status definitions.
+- When modifying database-related code, always review and synchronize the related SQL scripts under `server-springboot/sql/`.
+- Do not change entity fields, table structure, indexes, enums, or initialization data without updating the corresponding SQL files.
+
 ## Required workflow
 
 1. Find the most relevant document in `docs/` before making changes.
