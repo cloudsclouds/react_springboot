@@ -12,6 +12,7 @@ import com.example.server_springboot.kb.entity.KnowledgeArticle;
 import com.example.server_springboot.kb.entity.KnowledgeArticleVersion;
 import com.example.server_springboot.kb.mapper.KnowledgeArticleMapper;
 import com.example.server_springboot.kb.mapper.KnowledgeArticleVersionMapper;
+import com.example.server_springboot.kb.service.KnowledgeArticleChunkService;
 import com.example.server_springboot.kb.service.KnowledgeArticleService;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.time.LocalDateTime;
@@ -27,6 +28,7 @@ import org.springframework.stereotype.Service;
 public class KnowledgeArticleServiceImpl implements KnowledgeArticleService {
   private final KnowledgeArticleMapper articleMapper;
   private final KnowledgeArticleVersionMapper versionMapper;
+  private final KnowledgeArticleChunkService chunkService;
 
   @Override
   public ApiResponse<List<KnowledgeArticleListItemResponse>> listArticles(Long userId) {
@@ -56,6 +58,7 @@ public class KnowledgeArticleServiceImpl implements KnowledgeArticleService {
     article.setCreatedAt(LocalDateTime.now());
     article.setUpdatedAt(LocalDateTime.now());
     articleMapper.insert(article);
+    chunkService.ingestArticle(article.getId(), userId);
     return ApiResponse.success("创建成功", new CreateKnowledgeArticleResponse(article.getId(), article.getTitle()));
   }
 
@@ -87,6 +90,7 @@ public class KnowledgeArticleServiceImpl implements KnowledgeArticleService {
       article.setContent(newContent);
       article.setUpdatedAt(LocalDateTime.now());
       articleMapper.update(article);
+      chunkService.ingestArticle(articleId, userId);
     }
 
     Map<String, Object> data = new HashMap<>();
@@ -133,6 +137,7 @@ public class KnowledgeArticleServiceImpl implements KnowledgeArticleService {
     article.setContent(version.getSnapshot());
     article.setUpdatedAt(LocalDateTime.now());
     articleMapper.update(article);
+    chunkService.ingestArticle(articleId, userId);
     Map<String, Object> data = new HashMap<>();
     data.put("articleId", articleId);
     data.put("versionNo", request.getVersionNo());

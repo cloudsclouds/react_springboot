@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.server_springboot.kb.mapper.KnowledgeArticleChunkMapper">
+
+  <resultMap id="KnowledgeArticleChunkResultMap" type="com.example.server_springboot.kb.entity.KnowledgeArticleChunk">
+    <id column="id" property="id"/>
+    <result column="article_id" property="articleId"/>
+    <result column="chunk_index" property="chunkIndex"/>
+    <result column="chunk_text" property="chunkText"/>
+    <result column="chunk_summary" property="chunkSummary"/>
+    <result column="embedding_id" property="embeddingId"/>
+    <result column="created_at" property="createdAt"/>
+  </resultMap>
+
+  <insert id="insert" parameterType="com.example.server_springboot.kb.entity.KnowledgeArticleChunk" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO knowledge_article_chunks (article_id, chunk_index, chunk_text, chunk_summary, embedding_id, created_at)
+    VALUES (#{articleId}, #{chunkIndex}, #{chunkText}, #{chunkSummary}, #{embeddingId}, #{createdAt})
+  </insert>
+
+  <delete id="deleteByArticleId">
+    DELETE FROM knowledge_article_chunks WHERE article_id = #{articleId}
+  </delete>
+
+  <select id="selectByArticleIdOrderByChunkIndex" resultMap="KnowledgeArticleChunkResultMap">
+    SELECT id, article_id, chunk_index, chunk_text, chunk_summary, embedding_id, created_at
+    FROM knowledge_article_chunks
+    WHERE article_id = #{articleId}
+    ORDER BY chunk_index ASC, id ASC
+  </select>
+
+  <select id="selectByEmbeddingId" resultMap="KnowledgeArticleChunkResultMap">
+    SELECT id, article_id, chunk_index, chunk_text, chunk_summary, embedding_id, created_at
+    FROM knowledge_article_chunks
+    WHERE embedding_id = #{embeddingId}
+    LIMIT 1
+  </select>
+</mapper>

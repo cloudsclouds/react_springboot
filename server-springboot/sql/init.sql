@@ -1,3 +1,4 @@
+DROP TABLE IF EXISTS knowledge_article_chunks;
 DROP TABLE IF EXISTS knowledge_article_versions;
 DROP TABLE IF EXISTS knowledge_articles;
 DROP TABLE IF EXISTS ai_conversation_message;
@@ -106,6 +107,19 @@ CREATE TABLE IF NOT EXISTS knowledge_article_versions (
   KEY idx_knowledge_article_versions_article_id (article_id)
 );
 
+CREATE TABLE IF NOT EXISTS knowledge_article_chunks (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  article_id BIGINT NOT NULL COMMENT '文章 ID',
+  chunk_index INT NOT NULL COMMENT '片段序号',
+  chunk_text LONGTEXT NOT NULL COMMENT '片段内容',
+  chunk_summary VARCHAR(500) DEFAULT NULL COMMENT '片段摘要',
+  embedding_id VARCHAR(128) NOT NULL COMMENT 'Redis Stack 向量 ID',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  UNIQUE KEY uk_knowledge_article_chunks_article_chunk (article_id, chunk_index),
+  UNIQUE KEY uk_knowledge_article_chunks_embedding_id (embedding_id),
+  KEY idx_knowledge_article_chunks_article_id (article_id)
+);
+
 -- 测试数据 (Test Data)
 INSERT INTO users (id, username, email, password, nickname) VALUES 
 (1, 'admin', 'admin@test.com', '123456', '管理员'),
@@ -144,3 +158,8 @@ INSERT INTO knowledge_article_versions (id, article_id, version_no, snapshot, so
 (20001, 10001, 1, '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"初始版本内容"}]}]}', 'manual', 1),
 (20002, 10002, 1, '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Redis Stack 方案初稿"}]}]}', 'manual', 1),
 (20003, 10003, 1, '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"团队周报模板初稿"}]}]}', 'manual', 2);
+
+INSERT INTO knowledge_article_chunks (id, article_id, chunk_index, chunk_text, chunk_summary, embedding_id) VALUES
+(30001, 10001, 1, '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"初始版本内容"}]}]}', '初始版本内容', '10001-1-demo'),
+(30002, 10002, 1, '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Redis Stack 方案初稿"}]}]}', 'Redis Stack 方案初稿', '10002-1-demo'),
+(30003, 10003, 1, '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"团队周报模板初稿"}]}]}', '团队周报模板初稿', '10003-1-demo');
