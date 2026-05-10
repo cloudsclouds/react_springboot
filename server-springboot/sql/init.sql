@@ -1,3 +1,6 @@
+DROP TABLE IF EXISTS knowledge_article_versions;
+DROP TABLE IF EXISTS knowledge_articles;
+DROP TABLE IF EXISTS ai_conversation_message;
 DROP TABLE IF EXISTS ai_conversation;
 DROP TABLE IF EXISTS share_links;
 DROP TABLE IF EXISTS document_versions;
@@ -78,6 +81,31 @@ CREATE TABLE IF NOT EXISTS ai_conversation_message (
   KEY idx_ai_conversation_message_request_id (request_id)
 );
 
+CREATE TABLE IF NOT EXISTS knowledge_articles (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  user_id BIGINT NOT NULL COMMENT '文章所属用户 ID',
+  title VARCHAR(200) NOT NULL COMMENT '文章标题',
+  summary VARCHAR(500) DEFAULT NULL COMMENT '文章摘要',
+  content LONGTEXT NOT NULL COMMENT 'Tiptap JSON 内容',
+  status TINYINT NOT NULL DEFAULT 0 COMMENT '0-正常, 1-删除',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  KEY idx_knowledge_articles_user_id (user_id),
+  KEY idx_knowledge_articles_status (status)
+);
+
+CREATE TABLE IF NOT EXISTS knowledge_article_versions (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  article_id BIGINT NOT NULL COMMENT '文章 ID',
+  version_no INT NOT NULL COMMENT '版本号',
+  snapshot LONGTEXT NOT NULL COMMENT '版本快照',
+  source VARCHAR(20) NOT NULL DEFAULT 'manual' COMMENT 'manual, ai',
+  created_by BIGINT NOT NULL COMMENT '创建人',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  UNIQUE KEY uk_article_version (article_id, version_no),
+  KEY idx_knowledge_article_versions_article_id (article_id)
+);
+
 -- 测试数据 (Test Data)
 INSERT INTO users (id, username, email, password, nickname) VALUES 
 (1, 'admin', 'admin@test.com', '123456', '管理员'),
@@ -106,3 +134,13 @@ INSERT INTO share_links (document_id, share_token, permission, expire_time) VALU
 INSERT INTO ai_conversation (id, user_id, title, summary, status) VALUES 
 (1, 1, '新对话', '空对话', 0),
 (2, 1, '产品方案讨论', '空对话', 0);
+
+INSERT INTO knowledge_articles (id, user_id, title, summary, content, status) VALUES
+(10001, 1, '我的第一篇文章', '整理一篇产品思考笔记', '{"type":"doc","content":[{"type":"heading","attrs":{"level":1},"content":[{"type":"text","text":"我的第一篇文章"}]},{"type":"paragraph","content":[{"type":"text","text":"这里是文章正文。"}]}]}', 0),
+(10002, 1, 'Redis Stack RAG 方案', '记录向量检索设计思路', '{"type":"doc","content":[{"type":"heading","attrs":{"level":1},"content":[{"type":"text","text":"Redis Stack RAG 方案"}]},{"type":"paragraph","content":[{"type":"text","text":"这里是关于 Redis Stack 作为向量数据库的设计说明。"}]}]}', 0),
+(10003, 2, '团队周报模板', '适合团队协作的文章模板', '{"type":"doc","content":[{"type":"heading","attrs":{"level":1},"content":[{"type":"text","text":"团队周报模板"}]},{"type":"paragraph","content":[{"type":"text","text":"这是测试用户的文章示例。"}]}]}', 0);
+
+INSERT INTO knowledge_article_versions (id, article_id, version_no, snapshot, source, created_by) VALUES
+(20001, 10001, 1, '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"初始版本内容"}]}]}', 'manual', 1),
+(20002, 10002, 1, '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Redis Stack 方案初稿"}]}]}', 'manual', 1),
+(20003, 10003, 1, '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"团队周报模板初稿"}]}]}', 'manual', 2);

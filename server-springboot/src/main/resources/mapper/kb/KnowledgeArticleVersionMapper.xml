@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.server_springboot.kb.mapper.KnowledgeArticleVersionMapper">
+
+  <resultMap id="KnowledgeArticleVersionResultMap" type="com.example.server_springboot.kb.entity.KnowledgeArticleVersion">
+    <id column="id" property="id"/>
+    <result column="article_id" property="articleId"/>
+    <result column="version_no" property="versionNo"/>
+    <result column="snapshot" property="snapshot"/>
+    <result column="source" property="source"/>
+    <result column="created_by" property="createdBy"/>
+    <result column="created_at" property="createdAt"/>
+  </resultMap>
+
+  <insert id="insert" parameterType="com.example.server_springboot.kb.entity.KnowledgeArticleVersion" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO knowledge_article_versions (article_id, version_no, snapshot, source, created_by, created_at)
+    VALUES (#{articleId}, #{versionNo}, #{snapshot}, #{source}, #{createdBy}, #{createdAt})
+  </insert>
+
+  <select id="selectByArticleId" resultMap="KnowledgeArticleVersionResultMap">
+    SELECT id, article_id, version_no, snapshot, source, created_by, created_at
+    FROM knowledge_article_versions
+    WHERE article_id = #{articleId}
+    ORDER BY version_no DESC, id DESC
+  </select>
+
+  <select id="selectByArticleIdAndVersionNo" resultMap="KnowledgeArticleVersionResultMap">
+    SELECT id, article_id, version_no, snapshot, source, created_by, created_at
+    FROM knowledge_article_versions
+    WHERE article_id = #{articleId} AND version_no = #{versionNo}
+    LIMIT 1
+  </select>
+</mapper>

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.server_springboot.kb.mapper.KnowledgeArticleMapper">
+
+  <resultMap id="KnowledgeArticleResultMap" type="com.example.server_springboot.kb.entity.KnowledgeArticle">
+    <id column="id" property="id"/>
+    <result column="user_id" property="userId"/>
+    <result column="title" property="title"/>
+    <result column="summary" property="summary"/>
+    <result column="content" property="content"/>
+    <result column="status" property="status"/>
+    <result column="created_at" property="createdAt"/>
+    <result column="updated_at" property="updatedAt"/>
+  </resultMap>
+
+  <insert id="insert" parameterType="com.example.server_springboot.kb.entity.KnowledgeArticle" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO knowledge_articles (user_id, title, summary, content, status, created_at, updated_at)
+    VALUES (#{userId}, #{title}, #{summary}, #{content}, #{status}, #{createdAt}, #{updatedAt})
+  </insert>
+
+  <update id="update" parameterType="com.example.server_springboot.kb.entity.KnowledgeArticle">
+    UPDATE knowledge_articles
+    SET title = #{title}, summary = #{summary}, content = #{content}, status = #{status}, updated_at = #{updatedAt}
+    WHERE id = #{id}
+  </update>
+
+  <select id="selectById" resultMap="KnowledgeArticleResultMap">
+    SELECT id, user_id, title, summary, content, status, created_at, updated_at
+    FROM knowledge_articles
+    WHERE id = #{id}
+  </select>
+
+  <select id="selectByUserId" resultMap="KnowledgeArticleResultMap">
+    SELECT id, user_id, title, summary, content, status, created_at, updated_at
+    FROM knowledge_articles
+    WHERE user_id = #{userId}
+    ORDER BY updated_at DESC, id DESC
+  </select>
+</mapper>
