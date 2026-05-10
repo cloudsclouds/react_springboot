@@ -39,7 +39,7 @@ public class KnowledgeArticleServiceImpl implements KnowledgeArticleService {
   @Override
   public ApiResponse<KnowledgeArticleDetailResponse> getArticle(Long articleId, Long userId) {
     KnowledgeArticle article = articleMapper.selectById(articleId);
-    if (article == null || !userId.equals(article.getUserId()) || article.getStatus() != 0) {
+    if (article == null || !userId.equals(article.getUserId())) {
       return ApiResponse.error("文章不存在或无权访问");
     }
     return ApiResponse.success("查询成功", new KnowledgeArticleDetailResponse(article.getId(), article.getTitle(), article.getSummary(), parseContent(article.getContent()), article.getUpdatedAt()));
@@ -62,28 +62,38 @@ public class KnowledgeArticleServiceImpl implements KnowledgeArticleService {
   @Override
   public ApiResponse<Map<String, Object>> updateArticle(Long articleId, UpdateKnowledgeArticleRequest request, Long userId) {
     KnowledgeArticle article = articleMapper.selectById(articleId);
-    if (article == null || !userId.equals(article.getUserId()) || article.getStatus() != 0) {
+    if (article == null || !userId.equals(article.getUserId())) {
       return ApiResponse.error("文章不存在或无权编辑");
     }
-    KnowledgeArticleVersion version = new KnowledgeArticleVersion();
-    version.setArticleId(articleId);
-    version.setVersionNo(getNextVersionNo(articleId));
-    version.setSnapshot(article.getContent());
-    version.setSource(request.getSaveSource() == null ? "manual" : request.getSaveSource());
-    version.setCreatedBy(userId);
-    version.setCreatedAt(LocalDateTime.now());
-    versionMapper.insert(version);
+    String newTitle = request.getTitle().trim();
+    String newSummary = request.getSummary();
+    String newContent = stringifyContent(request.getContent());
+    boolean changed = hasChanges(article, newTitle, newSummary, newContent);
 
-    article.setTitle(request.getTitle().trim());
-    article.setSummary(request.getSummary());
-    article.setContent(stringifyContent(request.getContent()));
-    article.setUpdatedAt(LocalDateTime.now());
-    articleMapper.update(article);
+    Integer versionNo = getLatestVersionNo(articleId);
+    if (changed) {
+      KnowledgeArticleVersion version = new KnowledgeArticleVersion();
+      version.setArticleId(articleId);
+      version.setVersionNo(versionNo + 1);
+      version.setSnapshot(article.getContent());
+      version.setSource(request.getSaveSource() == null ? "manual" : request.getSaveSource());
+      version.setCreatedBy(userId);
+      version.setCreatedAt(LocalDateTime.now());
+      versionMapper.insert(version);
+      versionNo = version.getVersionNo();
+
+      article.setTitle(newTitle);
+      article.setSummary(newSummary);
+      article.setContent(newContent);
+      article.setUpdatedAt(LocalDateTime.now());
+      articleMapper.update(article);
+    }
 
     Map<String, Object> data = new HashMap<>();
     data.put("articleId", articleId);
-    data.put("versionNo", version.getVersionNo());
-    return ApiResponse.success("保存成功", data);
+    data.put("versionNo", versionNo);
+    data.put("changed", changed);
+    return ApiResponse.success(changed ? "保存成功" : "内容未变化", data);
   }
 
   @Override
@@ -129,9 +139,24 @@ public class KnowledgeArticleServiceImpl implements KnowledgeArticleService {
     return ApiResponse.success("回滚成功", data);
   }
 
-  private Integer getNextVersionNo(Long articleId) {
-    List<KnowledgeArticleVersion> versions = versionMapper.selectByArticleId(articleId);
-    return versions.stream().map(KnowledgeArticleVersion::getVersionNo).max(Integer::compareTo).orElse(0) + 1;
+  private Integer getLatestVersionNo(Long articleId) {
+    return versionMapper.selectByArticleId(articleId).stream()
+        .map(KnowledgeArticleVersion::getVersionNo)
+        .max(Integer::compareTo)
+        .orElse(0);
+  }
+
+  private boolean hasChanges(KnowledgeArticle article, String newTitle, String newSummary, String newContent) {
+    return !safeEquals(article.getTitle(), newTitle)
+        || !safeEquals(article.getSummary(), newSummary)
+        || !safeEquals(article.getContent(), newContent);
+  }
+
+  private boolean safeEquals(String left, String right) {
+    if (left == null) {
+      return right == null;
+    }
+    return left.equals(right);
   }
 
   private String stringifyContent(JsonNode content) {
