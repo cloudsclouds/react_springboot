@@ -5,30 +5,6 @@ DROP TABLE IF EXISTS document_members;
 DROP TABLE IF EXISTS documents;
 DROP TABLE IF EXISTS users;
 
-CREATE TABLE IF NOT EXISTS ai_conversation (
-  id BIGINT PRIMARY KEY AUTO_INCREMENT,
-  user_id BIGINT NOT NULL COMMENT '会话所属用户 ID',
-  title VARCHAR(200) NOT NULL COMMENT '会话标题',
-  status TINYINT NOT NULL DEFAULT 0 COMMENT '0-正常, 1-删除',
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-  KEY idx_ai_conversation_user_id (user_id),
-  KEY idx_ai_conversation_status (status)
-);
-
-CREATE TABLE IF NOT EXISTS ai_conversation_message (
-  id BIGINT PRIMARY KEY AUTO_INCREMENT,
-  conversation_id BIGINT NOT NULL COMMENT '会话 ID',
-  role VARCHAR(20) NOT NULL COMMENT 'user 或 assistant',
-  content LONGTEXT NOT NULL COMMENT '消息内容',
-  status VARCHAR(20) NOT NULL DEFAULT 'COMPLETED' COMMENT 'COMPLETED、GENERATING、FAILED、STOPPED',
-  request_id VARCHAR(64) DEFAULT NULL COMMENT '一次请求的唯一标识',
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-  KEY idx_ai_conversation_message_conversation_id (conversation_id),
-  KEY idx_ai_conversation_message_request_id (request_id)
-);
-
 CREATE TABLE IF NOT EXISTS users (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   username VARCHAR(100) NOT NULL,
@@ -77,11 +53,32 @@ CREATE TABLE IF NOT EXISTS share_links (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 测试数据 (Test Data)
-INSERT INTO ai_conversation (id, user_id, title, status) VALUES 
-(1, 1, '新对话', 0),
-(2, 2, '产品方案讨论', 0);
+CREATE TABLE IF NOT EXISTS ai_conversation (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  user_id BIGINT NOT NULL COMMENT '会话所属用户 ID',
+  title VARCHAR(200) NOT NULL COMMENT '会话标题',
+  summary VARCHAR(255) NOT NULL DEFAULT '空对话' COMMENT '内容摘要',
+  status TINYINT NOT NULL DEFAULT 0 COMMENT '0-正常, 1-删除',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  KEY idx_ai_conversation_user_id (user_id),
+  KEY idx_ai_conversation_status (status)
+);
 
+CREATE TABLE IF NOT EXISTS ai_conversation_message (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  conversation_id BIGINT NOT NULL COMMENT '会话 ID',
+  role VARCHAR(20) NOT NULL COMMENT 'user 或 assistant',
+  content LONGTEXT NOT NULL COMMENT '消息内容',
+  status VARCHAR(20) NOT NULL DEFAULT 'COMPLETED' COMMENT 'COMPLETED、GENERATING、FAILED、STOPPED',
+  request_id VARCHAR(64) DEFAULT NULL COMMENT '一次请求的唯一标识',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  KEY idx_ai_conversation_message_conversation_id (conversation_id),
+  KEY idx_ai_conversation_message_request_id (request_id)
+);
+
+-- 测试数据 (Test Data)
 INSERT INTO users (id, username, email, password, nickname) VALUES 
 (1, 'admin', 'admin@test.com', '123456', '管理员'),
 (2, 'test_user', 'user@test.com', '123456', '测试用户'),
@@ -105,3 +102,7 @@ INSERT INTO document_versions (document_id, version_no, snapshot, created_by) VA
 INSERT INTO share_links (document_id, share_token, permission, expire_time) VALUES 
 (1, 'token1234567890', 'viewer', '2030-12-31 23:59:59'),
 (2, 'token0987654321', 'editor', '2030-12-31 23:59:59');
+
+INSERT INTO ai_conversation (id, user_id, title, summary, status) VALUES 
+(1, 1, '新对话', '空对话', 0),
+(2, 1, '产品方案讨论', '空对话', 0);

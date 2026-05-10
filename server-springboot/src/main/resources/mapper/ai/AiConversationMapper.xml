@@ -6,24 +6,25 @@
     <id column="id" property="id"/>
     <result column="user_id" property="userId"/>
     <result column="title" property="title"/>
+    <result column="summary" property="summary"/>
     <result column="status" property="status"/>
     <result column="created_at" property="createdAt"/>
     <result column="updated_at" property="updatedAt"/>
   </resultMap>
 
   <insert id="insert" parameterType="com.example.server_springboot.ai.entity.AiConversation" useGeneratedKeys="true" keyProperty="id">
-    INSERT INTO ai_conversation (user_id, title, status, created_at, updated_at)
-    VALUES (#{userId}, #{title}, #{status}, #{createdAt}, #{updatedAt})
+    INSERT INTO ai_conversation (user_id, title, summary, status, created_at, updated_at)
+    VALUES (#{userId}, #{title}, #{summary}, #{status}, #{createdAt}, #{updatedAt})
   </insert>
 
   <select id="selectById" resultMap="AiConversationResultMap">
-    SELECT id, user_id, title, status, created_at, updated_at
+    SELECT id, user_id, title, summary, status, created_at, updated_at
     FROM ai_conversation
     WHERE id = #{id}
   </select>
 
   <select id="selectByUserId" resultMap="AiConversationResultMap">
-    SELECT id, user_id, title, status, created_at, updated_at
+    SELECT id, user_id, title, summary, status, created_at, updated_at
     FROM ai_conversation
     WHERE user_id = #{userId}
     ORDER BY id DESC

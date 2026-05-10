@@ -8,6 +8,7 @@ public class AiConversation {
   private Long id;
   private Long userId;
   private String title;
+  private String summary;
   private Integer status;
   private LocalDateTime createdAt;
   private LocalDateTime updatedAt;
