@@ -10,6 +10,7 @@ public class AiConversation {
   private String title;
   private String summary;
   private Integer status;
+  private Boolean useRag;
   private LocalDateTime createdAt;
   private LocalDateTime updatedAt;
 }

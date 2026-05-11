@@ -12,4 +12,6 @@ public interface AiConversationMapper {
   AiConversation selectById(@Param("id") Long id);
 
   List<AiConversation> selectByUserId(@Param("userId") Long userId);
+
+  int updateUseRagById(@Param("id") Long id, @Param("userId") Long userId, @Param("useRag") Boolean useRag);
 }

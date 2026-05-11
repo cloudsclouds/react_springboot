@@ -15,9 +15,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
@@ -32,9 +30,14 @@ import org.springframework.util.StringUtils;
 public class KnowledgeArticleChunkServiceImpl implements KnowledgeArticleChunkService {
   private static final Logger log = LoggerFactory.getLogger(KnowledgeArticleChunkServiceImpl.class);
   private static final int DEFAULT_TOP_K = 5;
-  private static final int VECTOR_DIMENSION = 1024;
-  private static final int MIN_CHUNK_LENGTH = 800;
-  private static final int MAX_CHUNK_LENGTH = 1600;
+  private static final int PLAIN_FALLBACK_MAX_CHUNK_LENGTH = 1400;
+  private static final int TARGET_CHUNK_LENGTH = 1100;
+  private static final int MIN_CHUNK_LENGTH = 500;
+  private static final int MAX_CHUNK_LENGTH = 1500;
+  private static final int OVERLAP_CHARS = 120;
+  private static final int HYBRID_RECALL_MULTIPLIER = 4;
+  private static final double VECTOR_WEIGHT = 0.75d;
+  private static final double KEYWORD_WEIGHT = 0.25d;
   private static final String RAG_VECTOR_KEY_PREFIX = "kb:rag:vector:";
   private static final String RAG_INDEX_KEY_PREFIX = "kb:rag:index:";
 
@@ -90,9 +93,11 @@ public class KnowledgeArticleChunkServiceImpl implements KnowledgeArticleChunkSe
       return ApiResponse.success("查询成功", List.of());
     }
 
+    int recallLimit = Math.max(limit, limit * HYBRID_RECALL_MULTIPLIER);
+
     List<KnowledgeChunkSearchResponse> result = new ArrayList<>();
     for (Long targetArticleId : targetArticleIds) {
-      List<String> candidates = searchVectorKeys(targetArticleId, query, limit);
+      List<String> candidates = searchVectorKeys(targetArticleId, query, recallLimit);
       if (candidates.isEmpty()) {
         log.info("RAG search empty candidates, articleId={}, query={}", targetArticleId, query);
         continue;
@@ -108,9 +113,9 @@ public class KnowledgeArticleChunkServiceImpl implements KnowledgeArticleChunkSe
         if (!Objects.equals(chunk.getArticleId(), targetArticleId)) {
           continue;
         }
-        double score = similarity(query, chunk.getChunkText());
-        log.info("RAG candidate score, articleId={}, chunkId={}, chunkIndex={}, embeddingId={}, score={}",
-            targetArticleId, chunk.getId(), chunk.getChunkIndex(), chunk.getEmbeddingId(), score);
+        double vectorScore = similarity(query, chunk.getChunkText());
+        double keywordScore = keywordScore(query, chunk.getChunkText());
+        double hybridScore = VECTOR_WEIGHT * vectorScore + KEYWORD_WEIGHT * keywordScore;
         result.add(new KnowledgeChunkSearchResponse(
             chunk.getId(),
             chunk.getArticleId(),
@@ -118,14 +123,12 @@ public class KnowledgeArticleChunkServiceImpl implements KnowledgeArticleChunkSe
             chunk.getChunkText(),
             chunk.getChunkSummary(),
             chunk.getEmbeddingId(),
-            score));
+            hybridScore));
       }
     }
 
     result.sort((a, b) -> Double.compare(b.getScore(), a.getScore()));
-    List<KnowledgeChunkSearchResponse> topResults = result.stream().limit(limit).toList();
-    log.info("RAG search result size={}, articleId={}, query={}", topResults.size(), articleId, query);
-    return ApiResponse.success("查询成功", topResults);
+    return ApiResponse.success("查询成功", result.stream().limit(limit).toList());
   }
 
   private void persistVector(Long articleId, String embeddingId, String chunkText, KnowledgeArticleChunk chunk) {
@@ -156,8 +159,7 @@ public class KnowledgeArticleChunkServiceImpl implements KnowledgeArticleChunkSe
         continue;
       }
       byte[] storedVector = Base64.getDecoder().decode(vectorBase64);
-      double score = cosine(queryVector, storedVector);
-      matches.add(new VectorMatch(key, score));
+      matches.add(new VectorMatch(key, cosine(queryVector, storedVector)));
     }
     matches.sort((a, b) -> Double.compare(b.score, a.score));
     return matches.stream().limit(limit).map(m -> m.key).toList();
@@ -178,94 +180,155 @@ public class KnowledgeArticleChunkServiceImpl implements KnowledgeArticleChunkSe
         .toList();
   }
 
-  private double cosine(byte[] left, byte[] right) {
-    int dims = Math.min(left.length, right.length) / Double.BYTES;
-    if (dims == 0) {
-      return 0d;
-    }
-    double dot = 0d;
-    double normA = 0d;
-    double normB = 0d;
-    for (int i = 0; i < dims; i++) {
-      int offset = i * Double.BYTES;
-      double av = java.nio.ByteBuffer.wrap(left, offset, Double.BYTES).getDouble();
-      double bv = java.nio.ByteBuffer.wrap(right, offset, Double.BYTES).getDouble();
-      dot += av * bv;
-      normA += av * av;
-      normB += bv * bv;
-    }
-    if (normA == 0d || normB == 0d) {
-      return 0d;
-    }
-    return dot / (Math.sqrt(normA) * Math.sqrt(normB));
-  }
-
   private List<ArticleChunkPiece> splitContent(String content) {
     List<ArticleChunkPiece> pieces = new ArrayList<>();
     if (!StringUtils.hasText(content)) {
       return pieces;
     }
+
     try {
       JsonNode root = objectMapper.readTree(content);
-      JsonNode nodes = root.path("content");
-      if (nodes.isArray()) {
-        ArticleChunkBuffer buffer = new ArticleChunkBuffer();
-        String currentHeading = null;
-        for (JsonNode node : nodes) {
-          String type = node.path("type").asText("");
-          if ("heading".equals(type)) {
-            flushBuffer(pieces, buffer, currentHeading);
-            currentHeading = extractText(node).trim();
-            continue;
-          }
-          if ("paragraph".equals(type)) {
-            String text = extractText(node).trim();
-            if (StringUtils.hasText(text)) {
-              buffer.append(composeText(currentHeading, text));
-            }
-            continue;
-          }
-          if ("bulletList".equals(type) || "orderedList".equals(type) || "list".equals(type)) {
-            String listText = extractText(node).trim();
-            if (StringUtils.hasText(listText)) {
-              buffer.append(composeText(currentHeading, listText));
-            }
-            continue;
-          }
-          String fallback = extractText(node).trim();
-          if (StringUtils.hasText(fallback)) {
-            buffer.append(composeText(currentHeading, fallback));
-          }
-        }
-        flushBuffer(pieces, buffer, currentHeading);
+      List<Section> sections = new ArrayList<>();
+      walkNodes(root.path("content"), sections, new HeadingState());
+      for (Section section : sections) {
+        pieces.addAll(chunkSection(section));
       }
     } catch (Exception ex) {
-      // fallback to plain text chunks
+      log.warn("split tiptap content failed, fallback to plain text: {}", ex.getMessage());
     }
 
-    if (pieces.isEmpty()) {
-      String plain = stripJsonToText(content);
-      if (StringUtils.hasText(plain)) {
-        for (int i = 0; i < plain.length(); i += MAX_CHUNK_LENGTH) {
-          String slice = plain.substring(i, Math.min(i + MAX_CHUNK_LENGTH, plain.length()));
-          pieces.add(new ArticleChunkPiece(slice, summarizeText(slice)));
-        }
-      }
+    if (!pieces.isEmpty()) {
+      return pieces;
+    }
+
+    String plain = stripJsonToText(content);
+    if (!StringUtils.hasText(plain)) {
+      return pieces;
+    }
+    for (int i = 0; i < plain.length(); i += PLAIN_FALLBACK_MAX_CHUNK_LENGTH) {
+      String slice = plain.substring(i, Math.min(i + PLAIN_FALLBACK_MAX_CHUNK_LENGTH, plain.length()));
+      pieces.add(new ArticleChunkPiece(slice, summarizeText(slice)));
     }
     return pieces;
   }
 
-  private void flushBuffer(List<ArticleChunkPiece> pieces, ArticleChunkBuffer buffer, String heading) {
-    if (buffer == null || !StringUtils.hasText(buffer.text())) {
+  private void walkNodes(JsonNode nodes, List<Section> sections, HeadingState headingState) {
+    if (nodes == null || !nodes.isArray()) {
       return;
     }
-    String merged = composeText(heading, buffer.text().trim());
-    pieces.add(new ArticleChunkPiece(merged, summarizeText(merged)));
-    buffer.clear();
+    for (JsonNode node : nodes) {
+      String type = node.path("type").asText("");
+      if ("heading".equals(type)) {
+        int level = node.path("attrs").path("level").asInt(1);
+        String heading = extractText(node).trim();
+        if (StringUtils.hasText(heading)) {
+          headingState.update(level, heading);
+          sections.add(new Section(headingState.path(), level));
+        }
+        continue;
+      }
+
+      String text = normalizeNodeText(node);
+      if (!StringUtils.hasText(text)) {
+        continue;
+      }
+      if (sections.isEmpty()) {
+        sections.add(new Section("未命名章节", 1));
+      }
+      sections.get(sections.size() - 1).blocks.add(text);
+    }
   }
 
-  private String composeText(String heading, String text) {
-    return StringUtils.hasText(heading) ? heading + "\n" + text : text;
+  private List<ArticleChunkPiece> chunkSection(Section section) {
+    List<ArticleChunkPiece> result = new ArrayList<>();
+    if (section.blocks.isEmpty()) {
+      return result;
+    }
+
+    StringBuilder window = new StringBuilder();
+    for (String block : section.blocks) {
+      if (window.length() > 0) {
+        window.append("\n\n");
+      }
+      window.append(block);
+
+      if (window.length() >= TARGET_CHUNK_LENGTH) {
+        emitByBoundary(result, section, window.toString());
+        window.setLength(0);
+      }
+    }
+
+    if (window.length() > 0) {
+      emitByBoundary(result, section, window.toString());
+    }
+    return result;
+  }
+
+  private void emitByBoundary(List<ArticleChunkPiece> out, Section section, String candidate) {
+    String text = candidate.trim();
+    while (text.length() > MAX_CHUNK_LENGTH) {
+      int splitAt = findSplitPoint(text, MAX_CHUNK_LENGTH);
+      String head = text.substring(0, splitAt).trim();
+      if (StringUtils.hasText(head)) {
+        out.add(toChunk(section, head));
+      }
+      int nextStart = Math.max(0, splitAt - OVERLAP_CHARS);
+      text = text.substring(nextStart).trim();
+    }
+
+    if (text.length() >= MIN_CHUNK_LENGTH || out.isEmpty()) {
+      out.add(toChunk(section, text));
+    } else if (!out.isEmpty()) {
+      ArticleChunkPiece prev = out.remove(out.size() - 1);
+      String mergedBody = bodyWithoutSectionPrefix(prev.text()) + "\n\n" + text;
+      out.add(toChunk(section, mergedBody));
+    }
+  }
+
+  private ArticleChunkPiece toChunk(Section section, String body) {
+    String prefixed = "[Section] " + section.path + "\n" + body.trim();
+    return new ArticleChunkPiece(prefixed, summarizeText(body));
+  }
+
+  private int findSplitPoint(String text, int preferredMax) {
+    int end = Math.min(preferredMax, text.length());
+    String head = text.substring(0, end);
+    int idx = Math.max(
+        Math.max(head.lastIndexOf('。'), head.lastIndexOf('！')),
+        Math.max(head.lastIndexOf('？'), head.lastIndexOf('\n')));
+    if (idx >= MIN_CHUNK_LENGTH) {
+      return idx + 1;
+    }
+    idx = Math.max(head.lastIndexOf('；'), head.lastIndexOf('，'));
+    if (idx >= MIN_CHUNK_LENGTH) {
+      return idx + 1;
+    }
+    return end;
+  }
+
+  private String bodyWithoutSectionPrefix(String text) {
+    if (!StringUtils.hasText(text)) {
+      return "";
+    }
+    int idx = text.indexOf('\n');
+    if (idx < 0 || idx + 1 >= text.length()) {
+      return text;
+    }
+    return text.substring(idx + 1);
+  }
+
+  private String normalizeNodeText(JsonNode node) {
+    String type = node.path("type").asText("");
+    String text = extractText(node).replaceAll("\\s+", " ").trim();
+    if (!StringUtils.hasText(text)) {
+      return "";
+    }
+    return switch (type) {
+      case "bulletList", "orderedList", "list" -> "- " + text;
+      case "codeBlock" -> "```\n" + text + "\n```";
+      case "blockquote" -> "> " + text;
+      default -> text;
+    };
   }
 
   private String extractText(JsonNode node) {
@@ -278,19 +341,6 @@ public class KnowledgeArticleChunkServiceImpl implements KnowledgeArticleChunkSe
     if (node.has("content") && node.path("content").isArray()) {
       StringBuilder builder = new StringBuilder();
       for (JsonNode child : node.path("content")) {
-        String text = extractText(child);
-        if (StringUtils.hasText(text)) {
-          if (builder.length() > 0) {
-            builder.append(' ');
-          }
-          builder.append(text);
-        }
-      }
-      return builder.toString();
-    }
-    if (node.has("items") && node.path("items").isArray()) {
-      StringBuilder builder = new StringBuilder();
-      for (JsonNode child : node.path("items")) {
         String text = extractText(child);
         if (StringUtils.hasText(text)) {
           if (builder.length() > 0) {
@@ -339,28 +389,105 @@ public class KnowledgeArticleChunkServiceImpl implements KnowledgeArticleChunkSe
     return cosine(dashScopeEmbeddingClient.embed(query), dashScopeEmbeddingClient.embed(text));
   }
 
+  private double keywordScore(String query, String text) {
+    if (!StringUtils.hasText(query) || !StringUtils.hasText(text)) {
+      return 0d;
+    }
+    String normalizedText = normalizeForKeyword(text);
+    if (!StringUtils.hasText(normalizedText)) {
+      return 0d;
+    }
+
+    List<String> tokens = tokenizeQuery(query);
+    if (tokens.isEmpty()) {
+      return 0d;
+    }
+
+    int hitCount = 0;
+    for (String token : tokens) {
+      if (normalizedText.contains(token)) {
+        hitCount++;
+      }
+    }
+    return (double) hitCount / (double) tokens.size();
+  }
+
+  private List<String> tokenizeQuery(String query) {
+    List<String> tokens = new ArrayList<>();
+    String[] parts = normalizeForKeyword(query).split("\\s+");
+    for (String part : parts) {
+      if (part.length() >= 2) {
+        tokens.add(part);
+      }
+    }
+    return tokens;
+  }
+
+  private String normalizeForKeyword(String value) {
+    if (!StringUtils.hasText(value)) {
+      return "";
+    }
+    return value
+        .toLowerCase()
+        .replaceAll("[^\\p{L}\\p{N}]+", " ")
+        .replaceAll("\\s+", " ")
+        .trim();
+  }
+
+  private double cosine(byte[] left, byte[] right) {
+    int dims = Math.min(left.length, right.length) / Double.BYTES;
+    if (dims == 0) {
+      return 0d;
+    }
+    double dot = 0d;
+    double normA = 0d;
+    double normB = 0d;
+    for (int i = 0; i < dims; i++) {
+      int offset = i * Double.BYTES;
+      double av = java.nio.ByteBuffer.wrap(left, offset, Double.BYTES).getDouble();
+      double bv = java.nio.ByteBuffer.wrap(right, offset, Double.BYTES).getDouble();
+      dot += av * bv;
+      normA += av * av;
+      normB += bv * bv;
+    }
+    if (normA == 0d || normB == 0d) {
+      return 0d;
+    }
+    return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+  }
+
   private record VectorMatch(String key, double score) {}
   private record ArticleChunkPiece(String text, String summary) {}
 
-  private static class ArticleChunkBuffer {
-    private final StringBuilder builder = new StringBuilder();
+  private static class Section {
+    private final String path;
+    private final int level;
+    private final List<String> blocks = new ArrayList<>();
 
-    void append(String text) {
-      if (!StringUtils.hasText(text)) {
-        return;
-      }
-      if (builder.length() > 0) {
-        builder.append("\n\n");
-      }
-      builder.append(text.trim());
+    Section(String path, int level) {
+      this.path = path;
+      this.level = level;
+    }
+  }
+
+  private static class HeadingState {
+    private final Map<Integer, String> levels = new HashMap<>();
+
+    void update(int level, String title) {
+      levels.put(level, title);
+      levels.keySet().removeIf(k -> k > level);
     }
 
-    String text() {
+    String path() {
+      List<Integer> ordered = levels.keySet().stream().sorted().toList();
+      StringBuilder builder = new StringBuilder();
+      for (Integer lv : ordered) {
+        if (builder.length() > 0) {
+          builder.append(" > ");
+        }
+        builder.append("H").append(lv).append(":").append(levels.get(lv));
+      }
       return builder.toString();
-    }
-
-    void clear() {
-      builder.setLength(0);
     }
   }
 }

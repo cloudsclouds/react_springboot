@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from 'react';
 import { SimpleEditor } from '@/components/tiptap-templates/simple/simple-editor';
 import type { ArticlePreview, ChatCitation } from '../../types/AIChat';
 
@@ -18,7 +19,6 @@ type RagPreviewPanelProps = {
 const citationLabel = (citationId: string) => `citation-${citationId}`;
 
 export default function RagPreviewPanel({
-  activeConversationId,
   isOpen,
   citations,
   activeCitationId,
@@ -30,59 +30,80 @@ export default function RagPreviewPanel({
   extractTextFromDoc,
   extractChunkPreview,
 }: RagPreviewPanelProps) {
+  const [showFullText, setShowFullText] = useState(false);
+  const activeCitation = citations.find((citation) => citation.citationId === activeCitationId) ?? citations[0] ?? null;
+
+  useEffect(() => {
+    setShowFullText(false);
+  }, [activeCitationId, isOpen]);
+
+  const articleDoc = buildArticleDoc(preview);
+  const articleText = articleDoc ? extractTextFromDoc(articleDoc) : activeCitation?.chunkText ?? '';
+  const fullText = articleText || activeCitation?.chunkText || '';
+
+  const snippetText = useMemo(() => {
+    if (!activeCitation) return '';
+    if (previewLoading) return '正在加载预览…';
+    return extractChunkPreview(articleText, activeCitation);
+  }, [activeCitation, articleText, extractChunkPreview, previewLoading]);
+
   return (
     <aside className={`panel rag-panel ai-chat-page__preview ${isOpen ? 'is-open' : 'is-collapsed'}`} aria-label="RAG 引用预览面板">
       <button type="button" className="rag-panel__collapse" onClick={onToggleOpen} aria-label={isOpen ? '收起预览面板' : '展开预览面板'}>
-        {isOpen ? '›' : '‹'}
+        {isOpen ? '‹' : '›'}
       </button>
 
       {isOpen ? (
-        <div className="rag-panel__content">
-          <div className="rag-panel__header">
-            <div>
-              <p className="chat-stage__label">只读预览</p>
-              <h3 className="chat-stage__title">文章全文</h3>
-            </div>
-            <span className="rag-panel__badge">{citations.length} 条引用</span>
-          </div>
+        <div className="rag-panel__content rag-panel__content--preview-only">
+          {activeCitation ? (
+            <div className="rag-preview-only" id={citationLabel(activeCitation.citationId)} data-citation-id={activeCitation.citationId}>
+              <div className="rag-preview-only__meta">
+                <p className="chat-stage__label">引用预览</p>
+                <h3 className="chat-stage__title">命中片段</h3>
+                <span>article #{activeCitation.articleId} · chunk #{activeCitation.chunkIndex}</span>
+              </div>
 
-          <div className="rag-panel__body">
-            {citations.length > 0 ? (
-              citations.map((citation) => {
-                const isSelected = activeCitationId === citation.citationId;
-                const articleDoc = buildArticleDoc(preview);
-                const articleText = articleDoc ? extractTextFromDoc(articleDoc) : citation.chunkText;
-                const chunkPreview = extractChunkPreview(articleText, citation);
-                const fullText = articleText;
-                return (
-                  <article key={citation.citationId} className={`rag-citation-card ${isSelected ? 'is-highlighted' : ''}`} id={citationLabel(citation.citationId)} data-citation-id={citation.citationId}>
-                    <button type="button" className="rag-citation-card__toggle" onClick={() => onOpenCitation(citation)}>
-                      <div className="rag-citation-card__meta">
-                        <strong className="rag-citation-card__title">{citation.articleTitle}</strong>
-                        <span>Chunk #{citation.chunkIndex}</span>
-                        {typeof citation.score === 'number' ? <span>Score {citation.score.toFixed(4)}</span> : null}
-                      </div>
-                      <div className="rag-citation-card__summary">{previewLoading ? '正在加载预览…' : chunkPreview}</div>
-                      <span className="rag-citation-card__hint">点击可展开 / 收起预览</span>
-                    </button>
-                    {isSelected ? (
-                      <div className="rag-citation-card__reader">
-                        <div className="rag-citation-card__reader-meta">
-                          <span>只读全文预览</span>
-                          <span>•</span>
-                          <span>article #{citation.articleId}</span>
-                          <span>•</span>
-                          <span>chunk #{citation.chunkIndex}</span>
-                        </div>
-                        <SimpleEditor initialContent={articleDoc || { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: fullText || '暂无内容' }] }] }} onContentChange={() => {}} readOnly />
-                      </div>
-                    ) : null}
-                  </article>
-                );
-              })
-            ) : (
-              <div className="empty-state empty-state--center">暂无引用，发送消息后会在这里显示 RAG 命中内容。</div>
-            )}
+              <div className="rag-snippet-card">
+                <p className="rag-snippet-card__content">{snippetText || '暂无片段内容'}</p>
+                {typeof activeCitation.score === 'number' ? <span className="rag-snippet-card__score">相关度 {activeCitation.score.toFixed(4)}</span> : null}
+              </div>
+
+
+              <div className="rag-preview-only__actions">
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => {
+                    onOpenCitation(activeCitation);
+                    setShowFullText(true);
+                  }}
+                >
+                  查看全文
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="empty-state empty-state--center">暂无引用，发送消息后会在这里显示 RAG 命中内容。</div>
+          )}
+        </div>
+      ) : null}
+
+      {isOpen && showFullText && activeCitation ? (
+        <div className="rag-fulltext-overlay" role="dialog" aria-modal="true" aria-label="全文预览">
+          <div className="rag-fulltext-sheet">
+            <div className="rag-fulltext-sheet__header">
+              <button type="button" className="secondary-button" onClick={() => setShowFullText(false)}>
+                关闭
+              </button>
+            </div>
+            <div className="rag-fulltext-sheet__body">
+              <SimpleEditor
+                initialContent={articleDoc || { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: fullText || '暂无内容' }] }] }}
+                onContentChange={() => {}}
+                readOnly
+                highlightText={activeCitation.chunkText || ''}
+              />
+            </div>
           </div>
         </div>
       ) : null}

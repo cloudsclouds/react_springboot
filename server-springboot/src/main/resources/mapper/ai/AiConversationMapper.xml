@@ -8,25 +8,34 @@
     <result column="title" property="title"/>
     <result column="summary" property="summary"/>
     <result column="status" property="status"/>
+    <result column="use_rag" property="useRag"/>
     <result column="created_at" property="createdAt"/>
     <result column="updated_at" property="updatedAt"/>
   </resultMap>
 
   <insert id="insert" parameterType="com.example.server_springboot.ai.entity.AiConversation" useGeneratedKeys="true" keyProperty="id">
-    INSERT INTO ai_conversation (user_id, title, summary, status, created_at, updated_at)
-    VALUES (#{userId}, #{title}, #{summary}, #{status}, #{createdAt}, #{updatedAt})
+    INSERT INTO ai_conversation (user_id, title, summary, status, use_rag, created_at, updated_at)
+    VALUES (#{userId}, #{title}, #{summary}, #{status}, #{useRag}, #{createdAt}, #{updatedAt})
   </insert>
 
   <select id="selectById" resultMap="AiConversationResultMap">
-    SELECT id, user_id, title, summary, status, created_at, updated_at
+    SELECT id, user_id, title, summary, status, use_rag, created_at, updated_at
     FROM ai_conversation
     WHERE id = #{id}
   </select>
 
   <select id="selectByUserId" resultMap="AiConversationResultMap">
-    SELECT id, user_id, title, summary, status, created_at, updated_at
+    SELECT id, user_id, title, summary, status, use_rag, created_at, updated_at
     FROM ai_conversation
     WHERE user_id = #{userId}
     ORDER BY id DESC
   </select>
+
+  <update id="updateUseRagById">
+    UPDATE ai_conversation
+    SET use_rag = #{useRag},
+        updated_at = NOW()
+    WHERE id = #{id}
+      AND user_id = #{userId}
+  </update>
 </mapper>

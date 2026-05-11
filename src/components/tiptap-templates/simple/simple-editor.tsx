@@ -160,7 +160,7 @@ const MobileToolbarContent = ({
   </>
 )
 
-export function SimpleEditor({ initialContent = content, onContentChange, readOnly = false }) {
+export function SimpleEditor({ initialContent = content, onContentChange, readOnly = false, highlightText = '', highlightToken = '' }) {
   const isMobile = useIsBreakpoint()
   const { height } = useWindowSize()
   const [mobileView, setMobileView] = useState("main")
@@ -230,6 +230,128 @@ export function SimpleEditor({ initialContent = content, onContentChange, readOn
 
     editor.commands.setContent(initialContent, false)
   }, [editor, initialContent])
+
+  useEffect(() => {
+    if (!editor || !readOnly) return;
+
+    const root = editor.view.dom as HTMLElement;
+    root.querySelectorAll('mark.rag-inline-highlight').forEach((node) => {
+      const parent = node.parentNode;
+      if (!parent) return;
+      while (node.firstChild) parent.insertBefore(node.firstChild, node);
+      parent.removeChild(node);
+      parent.normalize();
+    });
+
+    const rawQuery = (highlightText || highlightToken || '').trim();
+    if (!rawQuery) return;
+
+    const textNodes: Text[] = [];
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) {
+      const node = walker.currentNode as Text;
+      if (node.nodeValue?.trim()) textNodes.push(node);
+    }
+
+    const fullText = textNodes.map((n) => n.nodeValue || '').join('');
+
+    const normalize = (value: string) =>
+      value
+        .replace(/\u00A0/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+
+    const findBestMatch = () => {
+      const exactStart = fullText.indexOf(rawQuery);
+      if (exactStart >= 0) {
+        return { start: exactStart, end: exactStart + rawQuery.length };
+      }
+
+      const normalizedFull = normalize(fullText);
+      const normalizedQuery = normalize(rawQuery);
+      const normalizedStart = normalizedFull.indexOf(normalizedQuery);
+      if (normalizedStart < 0) return null;
+
+      // map normalized indices back to original indices
+      let sourceIndex = 0;
+      let normalizedIndex = 0;
+      let mappedStart = -1;
+      let mappedEnd = -1;
+      let prevWasSpace = false;
+
+      while (sourceIndex < fullText.length) {
+        const ch = fullText[sourceIndex];
+        const isSpace = /\s/.test(ch) || ch === '\u00A0';
+
+        if (isSpace) {
+          if (!prevWasSpace && normalizedIndex < normalizedFull.length) {
+            if (normalizedIndex === normalizedStart && mappedStart < 0) mappedStart = sourceIndex;
+            normalizedIndex += 1;
+            if (normalizedIndex === normalizedStart + normalizedQuery.length && mappedEnd < 0) {
+              mappedEnd = sourceIndex;
+              break;
+            }
+          }
+          prevWasSpace = true;
+        } else {
+          if (normalizedIndex === normalizedStart && mappedStart < 0) mappedStart = sourceIndex;
+          normalizedIndex += 1;
+          if (normalizedIndex === normalizedStart + normalizedQuery.length && mappedEnd < 0) {
+            mappedEnd = sourceIndex + 1;
+            break;
+          }
+          prevWasSpace = false;
+        }
+
+        sourceIndex += 1;
+      }
+
+      if (mappedStart < 0 || mappedEnd < 0 || mappedEnd <= mappedStart) return null;
+      return { start: mappedStart, end: mappedEnd };
+    };
+
+    const matchedRange = findBestMatch();
+    if (!matchedRange) return;
+
+    const { start, end } = matchedRange;
+
+    let cursor = 0;
+    let startNode: Text | null = null;
+    let endNode: Text | null = null;
+    let startOffset = 0;
+    let endOffset = 0;
+
+    for (const node of textNodes) {
+      const value = node.nodeValue || '';
+      const next = cursor + value.length;
+      if (!startNode && start >= cursor && start <= next) {
+        startNode = node;
+        startOffset = Math.max(0, start - cursor);
+      }
+      if (!endNode && end >= cursor && end <= next) {
+        endNode = node;
+        endOffset = Math.max(0, end - cursor);
+      }
+      cursor = next;
+      if (startNode && endNode) break;
+    }
+
+    if (!startNode || !endNode) return;
+
+    const range = document.createRange();
+    range.setStart(startNode, startOffset);
+    range.setEnd(endNode, endOffset);
+
+    const mark = document.createElement('mark');
+    mark.className = 'rag-inline-highlight';
+    try {
+      range.surroundContents(mark);
+      mark.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    } catch {
+      // ignore non-surroundable ranges
+    }
+  }, [editor, readOnly, highlightText, highlightToken, initialContent]);
 
   const rect = useCursorVisibility({
     editor,

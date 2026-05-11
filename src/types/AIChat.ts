@@ -31,6 +31,7 @@ export type ConversationDetail = {
   conversationId: number;
   title: string;
   summary?: string;
+  useRag?: boolean;
   createdAt?: string;
   updatedAt?: string;
   messages?: MessageItem[];

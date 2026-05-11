@@ -52,7 +52,6 @@ const renderMarkdownWithCitations = (markdown: string) => {
   return html.replace(/\[(c\d+)\]/g, '<button type="button" class="inline-citation" data-citation-id="$1">[$1]</button>');
 };
 
-const citationLabel = (citationId: string) => `citation-${citationId}`;
 
 const buildArticleDoc = (preview: ArticlePreview | null) => {
   if (!preview?.content) return null;
@@ -116,13 +115,25 @@ export default function AIChat() {
   const [inputValue, setInputValue] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [activeCitationId, setActiveCitationId] = useState('');
+  const [useRagByConversation, setUseRagByConversation] = useState<Record<string, boolean>>({});
 
   const routeConversationId = params.conversationId ? String(params.conversationId) : '';
 
   activeConversationIdRef.current = activeConversationId;
 
   const activeConversation = conversations.find((conversation) => conversation.id === activeConversationId) ?? null;
-  const activeMessages = messagesByConversation[activeConversationId] ?? [];
+  const useRag = activeConversationId ? (useRagByConversation[activeConversationId] ?? false) : false;
+  const activeMessages = useMemo(() => messagesByConversation[activeConversationId] ?? [], [activeConversationId, messagesByConversation]);
+  const activeCitationLookup = useMemo(
+    () =>
+      activeMessages.reduce<Record<string, ChatCitation>>((acc, message) => {
+        parseCitations(message.citations).forEach((citation) => {
+          acc[citation.citationId] = citation;
+        });
+        return acc;
+      }, {}),
+    [activeMessages],
+  );
 
   useEffect(() => {
     if (!activeConversationId || activeConversationId === routeConversationId) return;
@@ -174,6 +185,10 @@ export default function AIChat() {
 
     const normalizedMessages = Array.isArray(detail.messages) ? detail.messages : [];
     setConversations((current) => [normalizedConversation, ...current.filter((item) => item.id !== String(detail.conversationId))]);
+    setUseRagByConversation((current) => ({
+      ...current,
+      [String(detail.conversationId)]: !!detail.useRag,
+    }));
     setMessagesByConversation((current) => ({
       ...current,
       [String(detail.conversationId)]: normalizedMessages,
@@ -268,44 +283,67 @@ export default function AIChat() {
     };
   }, [isHistoryOpen]);
 
-  const openPreviewForCitation = async (citation: ChatCitation) => {
-    const conversationId = activeConversationId;
-    if (!conversationId) return;
-    const isSameCitation = activeCitationId === citation.citationId;
-    setPreviewOpenByConversation((current) => ({ ...current, [conversationId]: true }));
-    setActiveCitationId((current) => (isSameCitation ? current : citation.citationId));
-    if (isSameCitation && previewByConversation[conversationId]?.articleId === citation.articleId) return;
-    setPreviewLoadingByConversation((current) => ({ ...current, [conversationId]: true }));
-    try {
-      const response = await fetchKnowledgeArticle(citation.articleId);
-      if (!response.ok) throw new Error('加载文章失败');
-      const detail = response.data?.data;
-      setPreviewByConversation((current) => ({
-        ...current,
-        [conversationId]: detail
-          ? {
-              articleId: detail.articleId,
-              title: detail.title,
-              summary: detail.summary,
-              content: detail.content,
-              updatedAt: detail.updatedAt,
-            }
-          : null,
-      }));
-    } catch {
-      setPreviewByConversation((current) => ({
-        ...current,
-        [conversationId]: {
-          articleId: citation.articleId,
-          title: citation.articleTitle,
-          summary: '加载失败，请重试',
-          content: null,
-        },
-      }));
-    } finally {
-      setPreviewLoadingByConversation((current) => ({ ...current, [conversationId]: false }));
-    }
-  };
+  const openPreviewForCitation = useCallback(
+    async (citation: ChatCitation) => {
+      const conversationId = activeConversationId;
+      if (!conversationId) return;
+      const isSameCitation = activeCitationId === citation.citationId;
+      setPreviewOpenByConversation((current) => ({ ...current, [conversationId]: true }));
+      setActiveCitationId((current) => (isSameCitation ? current : citation.citationId));
+      if (isSameCitation && previewByConversation[conversationId]?.articleId === citation.articleId) return;
+      setPreviewLoadingByConversation((current) => ({ ...current, [conversationId]: true }));
+      try {
+        const response = await fetchKnowledgeArticle(citation.articleId);
+        if (!response.ok) throw new Error('加载文章失败');
+        const detail = response.data?.data;
+        setPreviewByConversation((current) => ({
+          ...current,
+          [conversationId]: detail
+            ? {
+                articleId: detail.articleId,
+                title: detail.title,
+                summary: detail.summary,
+                content: detail.content,
+                updatedAt: detail.updatedAt,
+              }
+            : null,
+        }));
+      } catch {
+        setPreviewByConversation((current) => ({
+          ...current,
+          [conversationId]: {
+            articleId: citation.articleId,
+            title: citation.articleTitle,
+            summary: '加载失败，请重试',
+            content: null,
+          },
+        }));
+      } finally {
+        setPreviewLoadingByConversation((current) => ({ ...current, [conversationId]: false }));
+      }
+    },
+    [activeCitationId, activeConversationId, previewByConversation],
+  );
+
+  useEffect(() => {
+    const handleMessageCitationClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      const citationButton = target?.closest?.('[data-citation-id]') as HTMLElement | null;
+      if (!citationButton || !messagesWrapRef.current?.contains(citationButton)) return;
+      const citationId = citationButton.dataset.citationId;
+      if (!citationId) return;
+      const citation = activeCitationLookup[citationId];
+      if (!citation) return;
+      event.preventDefault();
+      void openPreviewForCitation(citation);
+    };
+
+    const root = messagesWrapRef.current;
+    root?.addEventListener('click', handleMessageCitationClick);
+    return () => {
+      root?.removeEventListener('click', handleMessageCitationClick);
+    };
+  }, [activeCitationLookup, openPreviewForCitation]);
 
   const togglePreviewOpen = () => {
     const conversationId = activeConversationId;
@@ -494,7 +532,7 @@ export default function AIChat() {
             }
           })(),
         },
-        body: JSON.stringify({ conversationId, message: content, requestId, useRag: true, topK: 5 }),
+        body: JSON.stringify({ conversationId, message: content, requestId, useRag, topK: useRag ? 5 : 0 }),
         signal: controller.signal,
       });
 
@@ -532,7 +570,7 @@ export default function AIChat() {
       </header>
 
       <div className="ai-chat-page__layout">
-        <section className="chat-stage">
+        <section className="panel chat-stage">
           <div className="chat-stage__header">
             <div className="chat-stage__title-block">
               <p className="chat-stage__label">当前会话</p>
@@ -568,6 +606,20 @@ export default function AIChat() {
               }}
             />
             <div className="chat-stage__composer-actions">
+              <button
+                type="button"
+                className={useRag ? 'secondary-button is-active' : 'secondary-button'}
+                onClick={() => {
+                  if (!activeConversationId) return;
+                  setUseRagByConversation((current) => ({
+                    ...current,
+                    [activeConversationId]: !(current[activeConversationId] ?? false),
+                  }));
+                }}
+                disabled={isSending}
+              >
+                {useRag ? 'RAG 已开启' : '开启 RAG'}
+              </button>
               {isSending ? (
                 <button type="button" className="secondary-button" onClick={handleStopSending}>
                   停止发送

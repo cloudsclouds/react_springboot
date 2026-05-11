@@ -11,6 +11,7 @@ public class ConversationDetailResponse {
   private Long conversationId;
   private String title;
   private String summary;
+  private Boolean useRag;
   private LocalDateTime createdAt;
   private LocalDateTime updatedAt;
   private List<ConversationMessageResponse> messages;

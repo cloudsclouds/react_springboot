@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS ai_conversation (
   title VARCHAR(200) NOT NULL COMMENT '会话标题',
   summary VARCHAR(255) NOT NULL DEFAULT '空对话' COMMENT '内容摘要',
   status TINYINT NOT NULL DEFAULT 0 COMMENT '0-正常, 1-删除',
+  use_rag TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否启用 RAG（0-关闭，1-开启）',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   KEY idx_ai_conversation_user_id (user_id),
@@ -146,9 +147,9 @@ INSERT INTO share_links (document_id, share_token, permission, expire_time) VALU
 (1, 'token1234567890', 'viewer', '2030-12-31 23:59:59'),
 (2, 'token0987654321', 'editor', '2030-12-31 23:59:59');
 
-INSERT INTO ai_conversation (id, user_id, title, summary, status) VALUES 
-(1, 1, '新对话', '空对话', 0),
-(2, 1, '产品方案讨论', '空对话', 0);
+INSERT INTO ai_conversation (id, user_id, title, summary, status, use_rag) VALUES 
+(1, 1, '新对话', '空对话', 0, 0),
+(2, 1, '产品方案讨论', '空对话', 0, 1);
 
 INSERT INTO knowledge_articles (id, user_id, title, summary, content, status) VALUES
 (10001, 1, '我的第一篇文章', '整理一篇产品思考笔记', '{"type":"doc","content":[{"type":"heading","attrs":{"level":1},"content":[{"type":"text","text":"我的第一篇文章"}]},{"type":"paragraph","content":[{"type":"text","text":"这里是文章正文。"}]}]}', 0),

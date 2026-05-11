@@ -69,7 +69,9 @@ public class AiChatServiceImpl implements AiChatService {
     history.add(userMessage);
     cacheHistoryToRedis(conversation.getId(), history);
 
-    List<ChatCitationDto> citations = buildCitations(request.getUseRag(), request.getMessage(), request.getArticleId(), request.getTopK(), userId);
+    Boolean useRag = request.getUseRag() != null ? request.getUseRag() : conversation.getUseRag();
+    aiConversationMapper.updateUseRagById(conversation.getId(), userId, useRag);
+    List<ChatCitationDto> citations = buildCitations(useRag, request.getMessage(), request.getArticleId(), request.getTopK(), userId);
     String prompt = buildPrompt(request.getMessage(), citations);
     List<Message> messages = buildMessages(history, prompt);
     String answer = generateOnce(messages);
@@ -94,7 +96,9 @@ public class AiChatServiceImpl implements AiChatService {
         history.add(userMessage);
         cacheHistoryToRedis(conversation.getId(), history);
 
-        List<ChatCitationDto> citations = buildCitations(request.getUseRag(), request.getMessage(), request.getArticleId(), request.getTopK(), userId);
+        Boolean useRag = request.getUseRag() != null ? request.getUseRag() : conversation.getUseRag();
+        aiConversationMapper.updateUseRagById(conversation.getId(), userId, useRag);
+        List<ChatCitationDto> citations = buildCitations(useRag, request.getMessage(), request.getArticleId(), request.getTopK(), userId);
         String prompt = buildPrompt(request.getMessage(), citations);
         List<Message> messages = buildMessages(history, prompt);
 

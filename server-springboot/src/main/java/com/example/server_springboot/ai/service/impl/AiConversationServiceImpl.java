@@ -49,6 +49,7 @@ public class AiConversationServiceImpl implements AiConversationService {
 
     // 0 表示正常可用状态，后续如果做软删除可以改为其他状态值。
     conversation.setStatus(0);
+    conversation.setUseRag(Boolean.FALSE);
 
     // 创建时间和更新时间都写当前时间，方便后续排序和审计。
     conversation.setCreatedAt(LocalDateTime.now());
@@ -100,6 +101,7 @@ public class AiConversationServiceImpl implements AiConversationService {
         conversation.getId(),
         conversation.getTitle(),
         conversation.getSummary(),
+        conversation.getUseRag(),
         conversation.getCreatedAt(),
         conversation.getUpdatedAt(),
         messages);
