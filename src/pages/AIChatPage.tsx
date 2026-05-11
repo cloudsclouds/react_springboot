@@ -1,4 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import MarkdownIt from 'markdown-it';
+import markdownItKatex from 'markdown-it-katex';
+import 'katex/dist/katex.min.css';
+import { useNavigate, useParams } from 'react-router-dom';
 import { getJson, postJson } from '../api/http';
 
 // @ts-nocheck
@@ -19,6 +23,7 @@ type MessageItem = {
   requestId?: string;
   createdAt?: string;
   updatedAt?: string;
+  citations?: ChatCitation[];
 };
 
 type ConversationDetail = {
@@ -30,11 +35,23 @@ type ConversationDetail = {
   messages?: MessageItem[];
 };
 
+type ChatCitation = {
+  citationId: string;
+  articleId: number;
+  articleTitle: string;
+  chunkId: number;
+  chunkIndex: number;
+  chunkText: string;
+  score?: number;
+};
+
 type ChatEvent =
-  | { type?: 'message-start'; conversationId?: number; requestId?: string }
+  | { type?: 'rag-start'; conversationId?: number; requestId?: string }
+  | { type?: 'rag-result'; conversationId?: number; requestId?: string; citations?: ChatCitation[] }
+  | { type?: 'message-start'; conversationId?: number; requestId?: string; citations?: ChatCitation[] }
   | { type?: 'message-delta'; content?: string }
-  | { type?: 'message-end'; conversationId?: number; messageId?: number; status?: string }
-  | { type?: 'message-stop'; conversationId?: number; messageId?: number; status?: string }
+  | { type?: 'message-end'; conversationId?: number; messageId?: number; status?: string; citations?: ChatCitation[] }
+  | { type?: 'message-stop'; conversationId?: number; messageId?: number; status?: string; citations?: ChatCitation[] }
   | { type?: 'message-error'; message?: string };
 
 const API_BASE = process.env.REACT_APP_JAVA_API_BASE_URL || 'http://localhost:8080/api';
@@ -45,6 +62,15 @@ const formatTime = (value?: string) => {
   if (Number.isNaN(parsed.getTime())) return value;
   return parsed.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 };
+
+const markdownRenderer = new MarkdownIt({
+  html: true,
+  linkify: true,
+  breaks: true,
+  typographer: true,
+}).use(markdownItKatex);
+
+const renderMarkdown = (markdown: string) => markdownRenderer.render(markdown || '');
 
 const normalizeConversation = (item: ConversationItem) => ({
   id: String(item.conversationId),
@@ -60,20 +86,29 @@ export default function AIChatPage() {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const activeConversationIdRef = useRef('');
-  const initConversationStartedRef = useRef(false);
+  const navigate = useNavigate();
+  const params = useParams();
 
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [conversations, setConversations] = useState<Array<ReturnType<typeof normalizeConversation>>>([]);
   const [activeConversationId, setActiveConversationId] = useState('');
   const [messagesByConversation, setMessagesByConversation] = useState<Record<string, MessageItem[]>>({});
+  const [messageCitationsByConversation, setMessageCitationsByConversation] = useState<Record<string, ChatCitation[]>>({});
   const [inputValue, setInputValue] = useState('');
   const [isSending, setIsSending] = useState(false);
+
+  const routeConversationId = params.conversationId ? String(params.conversationId) : '';
 
   activeConversationIdRef.current = activeConversationId;
 
   const activeConversation = conversations.find((conversation) => conversation.id === activeConversationId) ?? null;
   const activeMessages = messagesByConversation[activeConversationId] ?? [];
+
+  useEffect(() => {
+    if (!activeConversationId || activeConversationId === routeConversationId) return;
+    navigate(`/ai/${activeConversationId}`, { replace: true });
+  }, [activeConversationId, navigate, routeConversationId]);
 
   const scrollMessagesToBottom = () => {
     requestAnimationFrame(() => {
@@ -127,6 +162,13 @@ export default function AIChatPage() {
       ...current,
       [String(detail.conversationId)]: normalizedMessages,
     }));
+    const assistantCitations = normalizedMessages
+      .filter((message) => message.role === 'assistant' && Array.isArray(message.citations))
+      .flatMap((message) => message.citations ?? []);
+    setMessageCitationsByConversation((current) => ({
+      ...current,
+      [String(detail.conversationId)]: assistantCitations,
+    }));
     if (normalizedMessages.length > 0) {
       scrollMessagesToBottom();
     }
@@ -147,8 +189,18 @@ export default function AIChatPage() {
     setConversations((current) => [created, ...current.filter((item) => item.id !== created.id)]);
     setMessagesByConversation((current) => ({ ...current, [created.id]: [] }));
     setActiveConversationId(created.id);
+    navigate(`/ai/${created.id}`, { replace: true });
     scrollMessagesToBottom();
     return created;
+  };
+
+  const resolveConversationFromRoute = async (conversationId: string) => {
+    try {
+      const loadedConversation = await loadConversationDetail(conversationId);
+      return loadedConversation;
+    } catch {
+      return createConversation();
+    }
   };
 
   const ensureConversation = async () => {
@@ -158,21 +210,21 @@ export default function AIChatPage() {
 
   useEffect(() => {
     let mounted = true;
-    if (initConversationStartedRef.current) {
-      return () => {
-        mounted = false;
-        abortRef.current?.abort();
-      };
-    }
 
-    initConversationStartedRef.current = true;
     (async () => {
       try {
+        const targetConversationId = routeConversationId;
+        if (targetConversationId) {
+          const resolvedConversation = await resolveConversationFromRoute(targetConversationId);
+          if (!mounted) return;
+          setActiveConversationId(String(resolvedConversation.conversationId));
+          return;
+        }
+
         const created = await createConversation();
         if (mounted) setActiveConversationId(created.id);
-      } catch (error) {
+      } catch {
         if (!mounted) return;
-        initConversationStartedRef.current = false;
       }
     })();
 
@@ -180,7 +232,7 @@ export default function AIChatPage() {
       mounted = false;
       abortRef.current?.abort();
     };
-  }, []);
+  }, [routeConversationId]);
 
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent | TouchEvent) => {
@@ -253,16 +305,31 @@ export default function AIChatPage() {
         try {
           const event = JSON.parse(payload) as ChatEvent;
           const conversationId = activeConversationIdRef.current;
+          if (event.type === 'rag-result') {
+            if (event.citations?.length) {
+              setMessageCitationsByConversation((current) => ({
+                ...current,
+                [conversationId]: event.citations ?? [],
+              }));
+            }
+            return;
+          }
           if (event.type === 'message-start') {
+            if (event.citations?.length) {
+              setMessageCitationsByConversation((current) => ({
+                ...current,
+                [conversationId]: event.citations ?? [],
+              }));
+            }
             mergeMessages(conversationId, (current) => {
               const next = [...current];
               const lastItem = next[next.length - 1];
               if (!lastItem || lastItem.role !== 'assistant') {
-                next.push({ role: 'assistant', content: '', status: 'GENERATING' });
+                next.push({ role: 'assistant', content: '', status: 'GENERATING', citations: event.citations ?? [] });
                 return next;
               }
               if (lastItem.status !== 'GENERATING') {
-                next.push({ role: 'assistant', content: '', status: 'GENERATING' });
+                next.push({ role: 'assistant', content: '', status: 'GENERATING', citations: event.citations ?? [] });
               }
               return next;
             });
@@ -282,11 +349,17 @@ export default function AIChatPage() {
             return;
           }
           if (event.type === 'message-end' || event.type === 'message-stop') {
+            if (event.citations?.length) {
+              setMessageCitationsByConversation((current) => ({
+                ...current,
+                [conversationId]: event.citations ?? [],
+              }));
+            }
             mergeMessages(conversationId, (current) => {
               const next = [...current];
               const lastIndex = next.length - 1;
               if (lastIndex >= 0 && next[lastIndex].role === 'assistant' && next[lastIndex].status === 'GENERATING') {
-                next[lastIndex] = { ...next[lastIndex], status: event.status ?? 'COMPLETED' };
+                next[lastIndex] = { ...next[lastIndex], status: event.status ?? 'COMPLETED', citations: event.citations ?? next[lastIndex].citations };
               }
               return next;
             });
@@ -338,7 +411,7 @@ export default function AIChatPage() {
             }
           })(),
         },
-        body: JSON.stringify({ conversationId, content }),
+        body: JSON.stringify({ conversationId, content, useRag: true, topK: 5 }),
         signal: controller.signal,
       });
 
@@ -431,13 +504,41 @@ export default function AIChatPage() {
               activeMessages.map((message, index) => (
                 <article key={`${message.role}-${message.messageId ?? index}`} className={`chat-bubble chat-bubble--${message.role}`}>
                   <span className="chat-bubble__role">{message.role === 'assistant' ? 'AI' : '你'}</span>
-                  <p>{message.content && message.content !== 'null' ? message.content : ''}</p>
+                  <div
+                    className="chat-bubble__content"
+                    dangerouslySetInnerHTML={{
+                      __html: renderMarkdown(message.content && message.content !== 'null' ? message.content : ''),
+                    }}
+                  />
+                  {message.role === 'assistant' && Array.isArray(message.citations) && message.citations.length > 0 ? (
+                    <div className="chat-bubble__citations">
+                      {message.citations.map((citation) => (
+                        <span key={citation.citationId} className="chat-citation-pill" title={citation.chunkText}>
+                          [{citation.citationId}] {citation.articleTitle}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                   {message.createdAt ? <time className="chat-bubble__time">{formatTime(message.createdAt)}</time> : null}
                 </article>
               ))
             ) : (
               <div className="empty-state empty-state--center">还没有消息，先发送一句试试。</div>
             )}
+            <div className="chat-stage__citation-summary">
+              {(messageCitationsByConversation[activeConversationId] ?? []).length > 0 ? (
+                <>
+                  <p>已检索到 {(messageCitationsByConversation[activeConversationId] ?? []).length} 条引用</p>
+                  <div className="chat-stage__citation-list">
+                    {(messageCitationsByConversation[activeConversationId] ?? []).map((citation) => (
+                      <span key={citation.citationId} className="chat-citation-pill" title={citation.chunkText}>
+                        [{citation.citationId}] {citation.articleTitle}
+                      </span>
+                    ))}
+                  </div>
+                </>
+              ) : null}
+            </div>
             <div ref={messagesEndRef} />
           </div>
 

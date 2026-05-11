@@ -170,6 +170,7 @@ function WorkspaceLayout({ themeMode, onToggleTheme }) {
             <Route path="/documents" element={<DocumentsPage />} />
             <Route path="/documents/:id" element={<DocumentsPage />} />
             <Route path="/ai" element={<AIChatPage />} />
+            <Route path="/ai/:conversationId" element={<AIChatPage />} />
             <Route path="/knowledge-base" element={<KnowledgeBasePage />} />
             <Route path="/organizations" element={<OrganizationsPage />} />
             <Route path="/share" element={<SharePage />} />

@@ -5,20 +5,19 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 @Data
-public class ChatStreamRequest {
-
+public class ChatRequest {
   @NotNull(message = "conversationId 不能为空")
   private Long conversationId;
 
-  @NotBlank(message = "content 不能为空")
-  private String content;
+  @NotBlank(message = "message 不能为空")
+  private String message;
 
-  /** 是否启用 RAG 检索，默认开启。 */
+  private Boolean stream = false;
   private Boolean useRag = true;
-
-  /** RAG 检索限定文章 ID，可选。 */
+  private String ragScope = "knowledge_base";
+  private Integer topK = 5;
   private Long articleId;
 
-  /** 返回引用条数，默认 5。 */
-  private Integer topK = 5;
+  @NotNull(message = "requestId 不能为空")
+  private String requestId;
 }

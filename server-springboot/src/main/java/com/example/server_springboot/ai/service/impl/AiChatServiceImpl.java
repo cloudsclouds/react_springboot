@@ -10,12 +10,18 @@ import com.alibaba.dashscope.exception.ApiException;
 import com.alibaba.dashscope.exception.InputRequiredException;
 import com.alibaba.dashscope.exception.NoApiKeyException;
 import com.example.server_springboot.ai.config.AiProperties;
+import com.example.server_springboot.ai.dto.ChatCitationDto;
+import com.example.server_springboot.ai.dto.ChatRequest;
+import com.example.server_springboot.ai.dto.ChatResponse;
 import com.example.server_springboot.ai.dto.ChatStreamRequest;
 import com.example.server_springboot.ai.entity.AiConversation;
 import com.example.server_springboot.ai.entity.AiConversationMessage;
 import com.example.server_springboot.ai.mapper.AiConversationMapper;
 import com.example.server_springboot.ai.mapper.AiConversationMessageMapper;
 import com.example.server_springboot.ai.service.AiChatService;
+import com.example.server_springboot.kb.dto.KnowledgeChunkSearchResponse;
+import com.example.server_springboot.kb.service.KnowledgeArticleChunkService;
+import com.example.server_springboot.kb.service.KnowledgeArticleService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -25,6 +31,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.ListOperations;
@@ -33,33 +41,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-/**
- * AI 流式聊天服务实现类。
- *
- * 主要职责：
- * 1. 校验会话权限；
- * 2. 读取并缓存会话历史；
- * 3. 调用 DashScope 流式接口；
- * 4. 通过 SSE 向前端推送增量内容；
- * 5. 在生成结束或中断时同步更新数据库和 Redis。
- */
 @Service
 @RequiredArgsConstructor
 public class AiChatServiceImpl implements AiChatService {
 
-  /** Redis 中会话历史的 key 前缀。 */
   private static final String REDIS_CONVERSATION_HISTORY_KEY_PREFIX = "ai:conversation:history:";
-
-  /** Redis 中保存的会话历史最多条数，避免缓存过长。 */
   private static final int REDIS_HISTORY_LIMIT = 20;
-
-  /** Redis 中停止生成标记的 key 前缀。 */
   private static final String REDIS_STOP_KEY_PREFIX = "ai:chat:stop:";
-
-  /**
-   * 保存“当前正在生成中的请求”，用于 stop 接口触发后快速定位。
-   * key = conversationId，value = 当前 requestId。
-   */
   private static final ConcurrentHashMap<Long, String> ACTIVE_REQUESTS = new ConcurrentHashMap<>();
 
   private final AiConversationMapper aiConversationMapper;
@@ -68,66 +56,60 @@ public class AiChatServiceImpl implements AiChatService {
   private final AiProperties aiProperties;
   private final StringRedisTemplate stringRedisTemplate;
   private final ObjectMapper objectMapper;
+  private final KnowledgeArticleService knowledgeArticleService;
+  private final KnowledgeArticleChunkService knowledgeArticleChunkService;
 
-  /**
-   * 发起一次流式聊天。
-   *
-   * 处理流程：
-   * 1. 校验会话归属；
-   * 2. 保存用户消息；
-   * 3. 读取历史并拼接上下文；
-   * 4. 创建 assistant 草稿消息；
-   * 5. DashScope 真正流式输出；
-   * 6. SSE 推送增量；
-   * 7. 结束后落库并刷新 Redis。
-   */
+  @Override
+  public ChatResponse chat(ChatRequest request, Long userId) {
+    AiConversation conversation = verifyConversation(request.getConversationId(), userId);
+    List<AiConversationMessage> history = loadConversationHistory(conversation.getId());
+
+    AiConversationMessage userMessage = createMessage(conversation.getId(), "user", request.getMessage(), "COMPLETED", request.getRequestId());
+    aiConversationMessageMapper.insert(userMessage);
+    history.add(userMessage);
+    cacheHistoryToRedis(conversation.getId(), history);
+
+    List<ChatCitationDto> citations = buildCitations(request.getUseRag(), request.getMessage(), request.getArticleId(), request.getTopK(), userId);
+    String prompt = buildPrompt(request.getMessage(), citations);
+    List<Message> messages = buildMessages(history, prompt);
+    String answer = generateOnce(messages);
+    return new ChatResponse(answer, citations, !citations.isEmpty());
+  }
+
   @Override
   public SseEmitter streamChat(ChatStreamRequest request, Long userId) {
     SseEmitter emitter = new SseEmitter(0L);
     String requestId = UUID.randomUUID().toString();
     Long conversationId = request.getConversationId();
-
-    // 先把当前对话的 requestId 记录下来，stop 接口会用到。
     ACTIVE_REQUESTS.put(conversationId, requestId);
-    // 清理旧的 stop 标识，避免上一次停止影响下一次请求。
     stringRedisTemplate.delete(stopKey(conversationId));
 
     new Thread(() -> {
       try {
-        AiConversation conversation = aiConversationMapper.selectById(conversationId);
-        if (conversation == null || !conversation.getUserId().equals(userId)) {
-          emitter.send(SseEmitter.event().name("message-error").data(jsonEvent("message-error", "会话不存在或无权限访问")));
-          emitter.complete();
-          cleanupActiveRequest(conversationId, requestId);
-          return;
-        }
-
-        AiConversationMessage userMessage = createMessage(conversationId, "user", request.getContent(), "COMPLETED", requestId);
+        AiConversation conversation = verifyConversation(conversationId, userId);
+        AiConversationMessage userMessage = createMessage(conversation.getId(), "user", request.getContent(), "COMPLETED", requestId);
         aiConversationMessageMapper.insert(userMessage);
 
-        List<AiConversationMessage> history = loadConversationHistory(conversationId);
+        List<AiConversationMessage> history = loadConversationHistory(conversation.getId());
         history.add(userMessage);
-        cacheHistoryToRedis(conversationId, history);
+        cacheHistoryToRedis(conversation.getId(), history);
 
-        List<Message> messages = buildMessages(history);
+        List<ChatCitationDto> citations = buildCitations(request.getUseRag(), request.getContent(), request.getArticleId(), request.getTopK(), userId);
+        String prompt = buildPrompt(request.getContent(), citations);
+        List<Message> messages = buildMessages(history, prompt);
 
-        GenerationParam param = GenerationParam.builder()
-            .apiKey(aiProperties.getApiKey())
-            .model(aiProperties.getModelName())
-            .messages(messages)
-            .temperature(aiProperties.getTemperature() == null ? null : aiProperties.getTemperature().floatValue())
-            .maxTokens(aiProperties.getMaxTokens())
-            .resultFormat(GenerationParam.ResultFormat.MESSAGE)
-            .build();
+        emitter.send(SseEmitter.event().name("rag-start").data(jsonEvent("rag-start", "", conversationId, requestId, null, null, List.of())));
+        emitter.send(SseEmitter.event().name("rag-result").data(jsonEvent("rag-result", "", conversationId, requestId, null, null, citations)));
 
-        AiConversationMessage assistantMessage = createMessage(conversationId, "assistant", "", "GENERATING", requestId);
+        AiConversationMessage assistantMessage = createMessage(conversation.getId(), "assistant", "", "GENERATING", requestId);
         aiConversationMessageMapper.insert(assistantMessage);
-
-        emitter.send(SseEmitter.event().name("message-start").data(jsonEvent("message-start", "", conversationId, requestId, null, null)));
+        emitter.send(SseEmitter.event().name("message-start").data(jsonEvent("message-start", "", conversationId, requestId, null, null, citations)));
 
         StringBuilder assistantContent = new StringBuilder();
-        StringBuilder lastEmittedContent = new StringBuilder();
         AtomicBoolean stopped = new AtomicBoolean(false);
+        AtomicBoolean completed = new AtomicBoolean(false);
+        CountDownLatch latch = new CountDownLatch(1);
+        GenerationParam param = buildGenerationParam(messages);
 
         generation.streamCall(param, new ResultCallback<GenerationResult>() {
           @Override
@@ -138,24 +120,21 @@ public class AiChatServiceImpl implements AiChatService {
                 onComplete();
                 return;
               }
-
-              String currentContent = extractContent(result);
-              if (!StringUtils.hasText(currentContent)) {
+              String chunk = extractContent(result);
+              if (!StringUtils.hasText(chunk)) {
                 return;
               }
-
-              String delta = currentContent;
-              if (currentContent.startsWith(lastEmittedContent.toString())) {
-                delta = currentContent.substring(lastEmittedContent.length());
+              String delta = chunk;
+              String current = assistantContent.toString();
+              if (chunk.startsWith(current)) {
+                delta = chunk.substring(current.length());
               }
-
               if (!StringUtils.hasText(delta)) {
+                assistantContent.setLength(0);
+                assistantContent.append(chunk);
                 return;
               }
-
               assistantContent.append(delta);
-              lastEmittedContent.setLength(0);
-              lastEmittedContent.append(currentContent);
               emitter.send(SseEmitter.event().name("message-delta").data(jsonEvent("message-delta", delta)));
             } catch (Exception e) {
               onError(e);
@@ -164,53 +143,50 @@ public class AiChatServiceImpl implements AiChatService {
 
           @Override
           public void onComplete() {
+            if (completed.getAndSet(true)) {
+              return;
+            }
             try {
               assistantMessage.setContent(assistantContent.toString());
+              assistantMessage.setStatus(stopped.get() ? "STOPPED" : "COMPLETED");
               assistantMessage.setUpdatedAt(LocalDateTime.now());
-              if (stopped.get()) {
-                assistantMessage.setStatus("STOPPED");
-              } else {
-                assistantMessage.setStatus("COMPLETED");
-              }
               aiConversationMessageMapper.updateById(assistantMessage);
-
-              List<AiConversationMessage> refreshedHistory = loadConversationHistory(conversationId);
-              refreshedHistory.add(assistantMessage);
-              cacheHistoryToRedis(conversationId, refreshedHistory);
-
-              String status = stopped.get() ? "STOPPED" : "COMPLETED";
               String eventType = stopped.get() ? "message-stop" : "message-end";
-              emitter.send(SseEmitter.event().name(eventType).data(jsonEvent(eventType, "", conversationId, requestId, assistantMessage.getId(), status)));
+              String status = stopped.get() ? "STOPPED" : "COMPLETED";
+              emitter.send(SseEmitter.event().name(eventType)
+                  .data(jsonEvent(eventType, "", conversationId, requestId, assistantMessage.getId(), status, citations)));
               emitter.complete();
             } catch (IOException e) {
               emitter.completeWithError(e);
             } finally {
               cleanupActiveRequest(conversationId, requestId);
               stringRedisTemplate.delete(stopKey(conversationId));
+              latch.countDown();
             }
           }
 
           @Override
           public void onError(Exception e) {
+            if (completed.getAndSet(true)) {
+              return;
+            }
             try {
               assistantMessage.setContent(assistantContent.toString());
               assistantMessage.setStatus("FAILED");
               assistantMessage.setUpdatedAt(LocalDateTime.now());
               aiConversationMessageMapper.updateById(assistantMessage);
-
-              List<AiConversationMessage> refreshedHistory = loadConversationHistory(conversationId);
-              refreshedHistory.add(assistantMessage);
-              cacheHistoryToRedis(conversationId, refreshedHistory);
-
               emitter.send(SseEmitter.event().name("message-error").data(jsonEvent("message-error", e.getMessage())));
             } catch (IOException ignored) {
             } finally {
               cleanupActiveRequest(conversationId, requestId);
               stringRedisTemplate.delete(stopKey(conversationId));
+              latch.countDown();
             }
             emitter.completeWithError(e);
           }
         });
+
+        latch.await(60, TimeUnit.SECONDS);
       } catch (IOException | ApiException | NoApiKeyException | InputRequiredException e) {
         try {
           emitter.send(SseEmitter.event().name("message-error").data(jsonEvent("message-error", e.getMessage())));
@@ -235,23 +211,107 @@ public class AiChatServiceImpl implements AiChatService {
     return emitter;
   }
 
-  /**
-   * 停止指定会话的生成。
-   *
-   * 这里的策略是：
-   * 1. 写入 Redis stop 标记；
-   * 2. 生成中的回调每次收到增量时都会检查该标记；
-   * 3. 一旦发现停止标记，就尽快结束生成流程；
-   * 4. 已生成内容会照常补写到 MySQL 和 Redis。
-   */
   @Override
   public void stopGeneration(Long conversationId, Long userId) {
     AiConversation conversation = aiConversationMapper.selectById(conversationId);
     if (conversation == null || !conversation.getUserId().equals(userId)) {
       throw new IllegalArgumentException("会话不存在或无权限停止生成");
     }
-
     stringRedisTemplate.opsForValue().set(stopKey(conversationId), "1", Duration.ofMinutes(10));
+  }
+
+  private AiConversation verifyConversation(Long conversationId, Long userId) {
+    AiConversation conversation = aiConversationMapper.selectById(conversationId);
+    if (conversation == null || !conversation.getUserId().equals(userId)) {
+      throw new IllegalArgumentException("会话不存在或无权限访问");
+    }
+    return conversation;
+  }
+
+  private List<ChatCitationDto> buildCitations(Boolean useRag, String query, Long articleId, Integer topK, Long userId) {
+    if (useRag == null || !useRag) {
+      return List.of();
+    }
+    var searchResponse = knowledgeArticleChunkService.searchChunks(userId, query, articleId, topK);
+    List<KnowledgeChunkSearchResponse> chunks = searchResponse == null ? List.of() : searchResponse.getData();
+    if (chunks == null || chunks.isEmpty()) {
+      return List.of();
+    }
+    List<ChatCitationDto> citations = new ArrayList<>();
+    for (int i = 0; i < chunks.size(); i++) {
+      KnowledgeChunkSearchResponse chunk = chunks.get(i);
+      String articleTitle = "知识库文章";
+      var articleResponse = knowledgeArticleService.getArticle(chunk.getArticleId(), userId);
+      if (articleResponse != null && articleResponse.isSuccess() && articleResponse.getData() != null) {
+        articleTitle = articleResponse.getData().getTitle();
+      }
+      citations.add(new ChatCitationDto(
+          "c" + (i + 1),
+          chunk.getArticleId(),
+          articleTitle,
+          chunk.getChunkId(),
+          chunk.getChunkIndex(),
+          chunk.getChunkText(),
+          chunk.getScore()));
+    }
+    return citations;
+  }
+
+  private String buildPrompt(String question, List<ChatCitationDto> citations) {
+    if (citations == null || citations.isEmpty()) {
+      return "";
+    }
+    StringBuilder builder = new StringBuilder();
+    builder.append("你需要优先根据以下检索到的知识库引用回答问题。\n");
+    for (ChatCitationDto citation : citations) {
+      builder.append("[").append(citation.getCitationId()).append("] ")
+          .append(citation.getArticleTitle())
+          .append(" - ")
+          .append(citation.getChunkText())
+          .append("\n");
+    }
+    builder.append("请在回答中使用 [citationId] 形式标注引用编号，并尽量只基于引用内容回答。问题：").append(question);
+    return builder.toString();
+  }
+
+  private String generateOnce(List<Message> messages) {
+    StringBuilder answer = new StringBuilder();
+    try {
+      GenerationParam param = buildGenerationParam(messages);
+      CountDownLatch latch = new CountDownLatch(1);
+      generation.streamCall(param, new ResultCallback<GenerationResult>() {
+        @Override
+        public void onEvent(GenerationResult result) {
+          answer.append(extractContent(result));
+        }
+
+        @Override
+        public void onComplete() {
+          latch.countDown();
+        }
+
+        @Override
+        public void onError(Exception e) {
+          latch.countDown();
+          throw new RuntimeException(e);
+        }
+      });
+      latch.await(60, TimeUnit.SECONDS);
+      return answer.toString();
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  private GenerationParam buildGenerationParam(List<Message> messages) {
+    return GenerationParam.builder()
+        .apiKey(aiProperties.getApiKey())
+        .model(aiProperties.getModelName())
+        .messages(messages)
+        .temperature(aiProperties.getTemperature() == null ? null : aiProperties.getTemperature().floatValue())
+        .maxTokens(aiProperties.getMaxTokens())
+        .resultFormat(GenerationParam.ResultFormat.MESSAGE)
+        .build();
   }
 
   private boolean isStopped(Long conversationId, String requestId) {
@@ -270,9 +330,6 @@ public class AiChatServiceImpl implements AiChatService {
     return REDIS_STOP_KEY_PREFIX + conversationId;
   }
 
-  /**
-   * 构造一条 AI 消息实体。
-   */
   private AiConversationMessage createMessage(Long conversationId, String role, String content, String status, String requestId) {
     AiConversationMessage message = new AiConversationMessage();
     message.setConversationId(conversationId);
@@ -285,9 +342,6 @@ public class AiChatServiceImpl implements AiChatService {
     return message;
   }
 
-  /**
-   * 从 Redis 或 MySQL 读取会话历史。
-   */
   private List<AiConversationMessage> loadConversationHistory(Long conversationId) {
     String cacheKey = REDIS_CONVERSATION_HISTORY_KEY_PREFIX + conversationId;
     ListOperations<String, String> listOps = stringRedisTemplate.opsForList();
@@ -296,8 +350,7 @@ public class AiChatServiceImpl implements AiChatService {
       List<AiConversationMessage> messages = new ArrayList<>();
       for (String item : cached) {
         try {
-          AiConversationMessage message = objectMapper.readValue(item, AiConversationMessage.class);
-          messages.add(message);
+          messages.add(objectMapper.readValue(item, AiConversationMessage.class));
         } catch (JsonProcessingException ignored) {
         }
       }
@@ -305,41 +358,33 @@ public class AiChatServiceImpl implements AiChatService {
         return messages;
       }
     }
-
     List<AiConversationMessage> dbHistory = aiConversationMessageMapper.selectByConversationId(conversationId);
     cacheHistoryToRedis(conversationId, dbHistory);
     return dbHistory;
   }
 
-  /**
-   * 将会话历史写回 Redis。
-   */
   private void cacheHistoryToRedis(Long conversationId, List<AiConversationMessage> messages) {
     String cacheKey = REDIS_CONVERSATION_HISTORY_KEY_PREFIX + conversationId;
     ListOperations<String, String> listOps = stringRedisTemplate.opsForList();
     stringRedisTemplate.delete(cacheKey);
-
     List<AiConversationMessage> recentMessages = messages.size() > REDIS_HISTORY_LIMIT
         ? messages.subList(Math.max(0, messages.size() - REDIS_HISTORY_LIMIT), messages.size())
         : messages;
-
     for (AiConversationMessage message : recentMessages) {
       try {
         listOps.rightPush(cacheKey, objectMapper.writeValueAsString(message));
       } catch (JsonProcessingException ignored) {
       }
     }
-
     stringRedisTemplate.expire(cacheKey, Duration.ofHours(2));
   }
 
-  /**
-   * 把消息列表转换为 DashScope 的输入消息格式。
-   */
-  private List<Message> buildMessages(List<AiConversationMessage> history) {
+  private List<Message> buildMessages(List<AiConversationMessage> history, String systemPrompt) {
     List<Message> messages = new ArrayList<>();
     messages.add(Message.builder().role(Role.SYSTEM.getValue()).content("You are a helpful assistant.").build());
-
+    if (StringUtils.hasText(systemPrompt)) {
+      messages.add(Message.builder().role(Role.SYSTEM.getValue()).content(systemPrompt).build());
+    }
     for (AiConversationMessage message : history) {
       if (!StringUtils.hasText(message.getContent())) {
         continue;
@@ -352,9 +397,6 @@ public class AiChatServiceImpl implements AiChatService {
     return messages;
   }
 
-  /**
-   * 从 DashScope 的流式结果中提取当前文本内容。
-   */
   private String extractContent(GenerationResult result) {
     if (result == null || result.getOutput() == null || result.getOutput().getChoices() == null || result.getOutput().getChoices().isEmpty()) {
       return "";
@@ -366,17 +408,11 @@ public class AiChatServiceImpl implements AiChatService {
     return content == null ? "" : content;
   }
 
-  /**
-   * 生成简单的 SSE JSON 事件体。
-   */
   private String jsonEvent(String type, String message) {
-    return jsonEvent(type, message, null, null, null, null);
+    return jsonEvent(type, message, null, null, null, null, List.of());
   }
 
-  /**
-   * 通用 SSE JSON 构造器。
-   */
-  private String jsonEvent(String type, String content, Long conversationId, String requestId, Long messageId, String status) {
+  private String jsonEvent(String type, String content, Long conversationId, String requestId, Long messageId, String status, List<ChatCitationDto> citations) {
     StringBuilder json = new StringBuilder("{");
     json.append("\"type\":").append(jsonString(type));
     if (content != null) {
@@ -394,7 +430,26 @@ public class AiChatServiceImpl implements AiChatService {
     if (status != null) {
       json.append(",\"status\":").append(jsonString(status));
     }
-    json.append("}");
+    if (citations != null && !citations.isEmpty()) {
+      json.append(",\"citations\":[");
+      for (int i = 0; i < citations.size(); i++) {
+        ChatCitationDto citation = citations.get(i);
+        if (i > 0) {
+          json.append(',');
+        }
+        json.append("{")
+            .append("\"citationId\":").append(jsonString(citation.getCitationId())).append(',')
+            .append("\"articleId\":").append(citation.getArticleId()).append(',')
+            .append("\"articleTitle\":").append(jsonString(citation.getArticleTitle())).append(',')
+            .append("\"chunkId\":").append(citation.getChunkId()).append(',')
+            .append("\"chunkIndex\":").append(citation.getChunkIndex()).append(',')
+            .append("\"chunkText\":").append(jsonString(citation.getChunkText())).append(',')
+            .append("\"score\":").append(citation.getScore())
+            .append("}");
+      }
+      json.append(']');
+    }
+    json.append('}');
     return json.toString();
   }
 

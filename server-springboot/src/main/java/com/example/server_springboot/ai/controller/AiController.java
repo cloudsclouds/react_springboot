@@ -1,5 +1,7 @@
 package com.example.server_springboot.ai.controller;
 
+import com.example.server_springboot.ai.dto.ChatRequest;
+import com.example.server_springboot.ai.dto.ChatResponse;
 import com.example.server_springboot.ai.dto.ChatStreamRequest;
 import com.example.server_springboot.ai.dto.ConversationDetailResponse;
 import com.example.server_springboot.ai.dto.ConversationListItemResponse;
@@ -41,6 +43,11 @@ public class AiController {
   @GetMapping("/conversations/{conversationId}/detail")
   public ConversationDetailResponse getConversationDetail(@PathVariable Long conversationId) {
     return aiConversationService.getConversationDetail(conversationId, UserContext.getUserId());
+  }
+
+  @PostMapping("/chat")
+  public ChatResponse chat(@Valid @RequestBody ChatRequest request) {
+    return aiChatService.chat(request, UserContext.getUserId());
   }
 
   @PostMapping(value = "/chat/stream", produces = "text/event-stream")
