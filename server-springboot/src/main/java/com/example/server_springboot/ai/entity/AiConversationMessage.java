@@ -11,6 +11,7 @@ public class AiConversationMessage {
   private String content;
   private String status;
   private String requestId;
+  private String citations;
   private LocalDateTime createdAt;
   private LocalDateTime updatedAt;
 }

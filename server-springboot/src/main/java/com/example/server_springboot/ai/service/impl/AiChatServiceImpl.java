@@ -79,7 +79,7 @@ public class AiChatServiceImpl implements AiChatService {
   @Override
   public SseEmitter streamChat(ChatStreamRequest request, Long userId) {
     SseEmitter emitter = new SseEmitter(0L);
-    String requestId = UUID.randomUUID().toString();
+    String requestId = StringUtils.hasText(request.getRequestId()) ? request.getRequestId() : UUID.randomUUID().toString();
     Long conversationId = request.getConversationId();
     ACTIVE_REQUESTS.put(conversationId, requestId);
     stringRedisTemplate.delete(stopKey(conversationId));
@@ -87,15 +87,15 @@ public class AiChatServiceImpl implements AiChatService {
     new Thread(() -> {
       try {
         AiConversation conversation = verifyConversation(conversationId, userId);
-        AiConversationMessage userMessage = createMessage(conversation.getId(), "user", request.getContent(), "COMPLETED", requestId);
+        AiConversationMessage userMessage = createMessage(conversation.getId(), "user", request.getMessage(), "COMPLETED", requestId);
         aiConversationMessageMapper.insert(userMessage);
 
         List<AiConversationMessage> history = loadConversationHistory(conversation.getId());
         history.add(userMessage);
         cacheHistoryToRedis(conversation.getId(), history);
 
-        List<ChatCitationDto> citations = buildCitations(request.getUseRag(), request.getContent(), request.getArticleId(), request.getTopK(), userId);
-        String prompt = buildPrompt(request.getContent(), citations);
+        List<ChatCitationDto> citations = buildCitations(request.getUseRag(), request.getMessage(), request.getArticleId(), request.getTopK(), userId);
+        String prompt = buildPrompt(request.getMessage(), citations);
         List<Message> messages = buildMessages(history, prompt);
 
         emitter.send(SseEmitter.event().name("rag-start").data(jsonEvent("rag-start", "", conversationId, requestId, null, null, List.of())));
@@ -149,6 +149,7 @@ public class AiChatServiceImpl implements AiChatService {
             try {
               assistantMessage.setContent(assistantContent.toString());
               assistantMessage.setStatus(stopped.get() ? "STOPPED" : "COMPLETED");
+              assistantMessage.setCitations(serializeCitations(citations));
               assistantMessage.setUpdatedAt(LocalDateTime.now());
               aiConversationMessageMapper.updateById(assistantMessage);
               String eventType = stopped.get() ? "message-stop" : "message-end";
@@ -173,6 +174,7 @@ public class AiChatServiceImpl implements AiChatService {
             try {
               assistantMessage.setContent(assistantContent.toString());
               assistantMessage.setStatus("FAILED");
+              assistantMessage.setCitations(serializeCitations(citations));
               assistantMessage.setUpdatedAt(LocalDateTime.now());
               aiConversationMessageMapper.updateById(assistantMessage);
               emitter.send(SseEmitter.event().name("message-error").data(jsonEvent("message-error", e.getMessage())));
@@ -228,31 +230,67 @@ public class AiChatServiceImpl implements AiChatService {
     return conversation;
   }
 
+  private boolean isArticleVisible(Long articleId, Long userId) {
+    if (articleId == null) {
+      return false;
+    }
+    var articleResponse = knowledgeArticleService.getArticle(articleId, userId);
+    return articleResponse != null && articleResponse.isSuccess() && articleResponse.getData() != null;
+  }
+
+  private List<Long> resolveRagArticleIds(Long articleId, Long userId) {
+    if (articleId != null) {
+      return isArticleVisible(articleId, userId) ? List.of(articleId) : List.of();
+    }
+    return knowledgeArticleService.listArticles(userId).getData().stream()
+        .filter(article -> article.getStatus() == null || article.getStatus() == 0)
+        .map(article -> article.getArticleId())
+        .toList();
+  }
+
   private List<ChatCitationDto> buildCitations(Boolean useRag, String query, Long articleId, Integer topK, Long userId) {
     if (useRag == null || !useRag) {
       return List.of();
     }
-    var searchResponse = knowledgeArticleChunkService.searchChunks(userId, query, articleId, topK);
-    List<KnowledgeChunkSearchResponse> chunks = searchResponse == null ? List.of() : searchResponse.getData();
-    if (chunks == null || chunks.isEmpty()) {
+
+    List<Long> targetArticleIds = resolveRagArticleIds(articleId, userId);
+    if (targetArticleIds.isEmpty()) {
       return List.of();
     }
+
     List<ChatCitationDto> citations = new ArrayList<>();
-    for (int i = 0; i < chunks.size(); i++) {
-      KnowledgeChunkSearchResponse chunk = chunks.get(i);
-      String articleTitle = "知识库文章";
-      var articleResponse = knowledgeArticleService.getArticle(chunk.getArticleId(), userId);
-      if (articleResponse != null && articleResponse.isSuccess() && articleResponse.getData() != null) {
-        articleTitle = articleResponse.getData().getTitle();
+    int remaining = topK == null || topK <= 0 ? 5 : topK;
+    for (Long targetArticleId : targetArticleIds) {
+      if (remaining <= 0) {
+        break;
       }
-      citations.add(new ChatCitationDto(
-          "c" + (i + 1),
-          chunk.getArticleId(),
-          articleTitle,
-          chunk.getChunkId(),
-          chunk.getChunkIndex(),
-          chunk.getChunkText(),
-          chunk.getScore()));
+      var searchResponse = knowledgeArticleChunkService.searchChunks(userId, query, targetArticleId, remaining);
+      List<KnowledgeChunkSearchResponse> chunks = searchResponse == null ? List.of() : searchResponse.getData();
+      if (chunks == null || chunks.isEmpty()) {
+        continue;
+      }
+      for (KnowledgeChunkSearchResponse chunk : chunks) {
+        if (!isArticleVisible(chunk.getArticleId(), userId)) {
+          continue;
+        }
+        String articleTitle = "知识库文章";
+        var articleResponse = knowledgeArticleService.getArticle(chunk.getArticleId(), userId);
+        if (articleResponse != null && articleResponse.isSuccess() && articleResponse.getData() != null) {
+          articleTitle = articleResponse.getData().getTitle();
+        }
+        citations.add(new ChatCitationDto(
+            "c" + (citations.size() + 1),
+            chunk.getArticleId(),
+            articleTitle,
+            chunk.getChunkId(),
+            chunk.getChunkIndex(),
+            chunk.getChunkText(),
+            chunk.getScore()));
+        remaining--;
+        if (remaining <= 0) {
+          break;
+        }
+      }
     }
     return citations;
   }
@@ -263,6 +301,10 @@ public class AiChatServiceImpl implements AiChatService {
     }
     StringBuilder builder = new StringBuilder();
     builder.append("你需要优先根据以下检索到的知识库引用回答问题。\n");
+    builder.append("引用编号格式必须严格使用 [c1]、[c2] 这种形式，不要输出其他格式的引用编号。\n");
+    builder.append("如果回答中的某个结论或事实来自引用内容，必须在对应句子末尾追加相应引用编号，例如 [c1] 或 [c1][c3]。\n");
+    builder.append("如果没有引用支撑，不要编造结论，直接说明无法从知识库中确认。\n");
+    builder.append("下面是可用引用：\n");
     for (ChatCitationDto citation : citations) {
       builder.append("[").append(citation.getCitationId()).append("] ")
           .append(citation.getArticleTitle())
@@ -270,7 +312,7 @@ public class AiChatServiceImpl implements AiChatService {
           .append(citation.getChunkText())
           .append("\n");
     }
-    builder.append("请在回答中使用 [citationId] 形式标注引用编号，并尽量只基于引用内容回答。问题：").append(question);
+    builder.append("请只基于以上引用回答问题。问题：").append(question);
     return builder.toString();
   }
 
@@ -415,9 +457,7 @@ public class AiChatServiceImpl implements AiChatService {
   private String jsonEvent(String type, String content, Long conversationId, String requestId, Long messageId, String status, List<ChatCitationDto> citations) {
     StringBuilder json = new StringBuilder("{");
     json.append("\"type\":").append(jsonString(type));
-    if (content != null) {
-      json.append(",\"content\":").append(jsonString(content));
-    }
+    json.append(",\"content\":").append(jsonString(content));
     if (conversationId != null) {
       json.append(",\"conversationId\":").append(conversationId);
     }
@@ -430,8 +470,8 @@ public class AiChatServiceImpl implements AiChatService {
     if (status != null) {
       json.append(",\"status\":").append(jsonString(status));
     }
+    json.append(",\"citations\":[");
     if (citations != null && !citations.isEmpty()) {
-      json.append(",\"citations\":[");
       for (int i = 0; i < citations.size(); i++) {
         ChatCitationDto citation = citations.get(i);
         if (i > 0) {
@@ -447,8 +487,8 @@ public class AiChatServiceImpl implements AiChatService {
             .append("\"score\":").append(citation.getScore())
             .append("}");
       }
-      json.append(']');
     }
+    json.append(']');
     json.append('}');
     return json.toString();
   }
@@ -458,6 +498,14 @@ public class AiChatServiceImpl implements AiChatService {
       return "null";
     }
     return '"' + escapeJson(value) + '"';
+  }
+
+  private String serializeCitations(List<ChatCitationDto> citations) {
+    try {
+      return objectMapper.writeValueAsString(citations == null ? List.of() : citations);
+    } catch (JsonProcessingException e) {
+      return "[]";
+    }
   }
 
   private String escapeJson(String value) {

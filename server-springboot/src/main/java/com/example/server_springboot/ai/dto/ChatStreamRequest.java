@@ -10,8 +10,11 @@ public class ChatStreamRequest {
   @NotNull(message = "conversationId 不能为空")
   private Long conversationId;
 
-  @NotBlank(message = "content 不能为空")
-  private String content;
+  @NotBlank(message = "message 不能为空")
+  private String message;
+
+  @NotBlank(message = "requestId 不能为空")
+  private String requestId;
 
   /** 是否启用 RAG 检索，默认开启。 */
   private Boolean useRag = true;

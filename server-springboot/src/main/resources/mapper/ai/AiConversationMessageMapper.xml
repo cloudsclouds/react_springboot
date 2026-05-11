@@ -9,25 +9,27 @@
     <result column="content" property="content"/>
     <result column="status" property="status"/>
     <result column="request_id" property="requestId"/>
+    <result column="citations" property="citations"/>
     <result column="created_at" property="createdAt"/>
     <result column="updated_at" property="updatedAt"/>
   </resultMap>
 
   <insert id="insert" parameterType="com.example.server_springboot.ai.entity.AiConversationMessage" useGeneratedKeys="true" keyProperty="id">
-    INSERT INTO ai_conversation_message (conversation_id, role, content, status, request_id, created_at, updated_at)
-    VALUES (#{conversationId}, #{role}, #{content}, #{status}, #{requestId}, #{createdAt}, #{updatedAt})
+    INSERT INTO ai_conversation_message (conversation_id, role, content, status, request_id, citations, created_at, updated_at)
+    VALUES (#{conversationId}, #{role}, #{content}, #{status}, #{requestId}, #{citations}, #{createdAt}, #{updatedAt})
   </insert>
 
   <update id="updateById" parameterType="com.example.server_springboot.ai.entity.AiConversationMessage">
     UPDATE ai_conversation_message
     SET content = #{content},
         status = #{status},
+        citations = #{citations},
         updated_at = #{updatedAt}
     WHERE id = #{id}
   </update>
 
   <select id="selectByConversationId" resultMap="AiConversationMessageResultMap">
-    SELECT id, conversation_id, role, content, status, request_id, created_at, updated_at
+    SELECT id, conversation_id, role, content, status, request_id, citations, created_at, updated_at
     FROM ai_conversation_message
     WHERE conversation_id = #{conversationId}
     ORDER BY id ASC

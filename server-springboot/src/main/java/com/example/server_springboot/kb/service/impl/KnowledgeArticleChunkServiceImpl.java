@@ -80,35 +80,48 @@ public class KnowledgeArticleChunkServiceImpl implements KnowledgeArticleChunkSe
   @Override
   public ApiResponse<List<KnowledgeChunkSearchResponse>> searchChunks(Long userId, String query, Long articleId, Integer topK) {
     int limit = topK == null || topK <= 0 ? DEFAULT_TOP_K : topK;
-    if (articleId == null) {
-      return ApiResponse.error("articleId 不能为空");
-    }
-    List<String> candidates = searchVectorKeys(articleId, query, limit);
-    List<KnowledgeChunkSearchResponse> result = new ArrayList<>();
-    if (candidates.isEmpty()) {
-      log.info("RAG search empty candidates, articleId={}, query={}", articleId, query);
-      return ApiResponse.success("查询成功", result);
+    if (!StringUtils.hasText(query)) {
+      return ApiResponse.error("query 不能为空");
     }
 
-    for (String key : candidates) {
-      String id = key.substring(RAG_VECTOR_KEY_PREFIX.length());
-      KnowledgeArticleChunk chunk = chunkMapper.selectByEmbeddingId(id);
-      if (chunk == null) {
-        log.info("RAG chunk missing in mysql, articleId={}, embeddingId={}", articleId, id);
+    List<Long> targetArticleIds = resolveTargetArticleIds(userId, articleId);
+    if (targetArticleIds.isEmpty()) {
+      log.info("RAG search no target articles, userId={}, articleId={}, query={}", userId, articleId, query);
+      return ApiResponse.success("查询成功", List.of());
+    }
+
+    List<KnowledgeChunkSearchResponse> result = new ArrayList<>();
+    for (Long targetArticleId : targetArticleIds) {
+      List<String> candidates = searchVectorKeys(targetArticleId, query, limit);
+      if (candidates.isEmpty()) {
+        log.info("RAG search empty candidates, articleId={}, query={}", targetArticleId, query);
         continue;
       }
-      double score = similarity(query, chunk.getChunkText());
-      log.info("RAG candidate score, articleId={}, chunkId={}, chunkIndex={}, embeddingId={}, score={}",
-          articleId, chunk.getId(), chunk.getChunkIndex(), chunk.getEmbeddingId(), score);
-      result.add(new KnowledgeChunkSearchResponse(
-          chunk.getId(),
-          chunk.getArticleId(),
-          chunk.getChunkIndex(),
-          chunk.getChunkText(),
-          chunk.getChunkSummary(),
-          chunk.getEmbeddingId(),
-          score));
+
+      for (String key : candidates) {
+        String id = key.substring(RAG_VECTOR_KEY_PREFIX.length());
+        KnowledgeArticleChunk chunk = chunkMapper.selectByEmbeddingId(id);
+        if (chunk == null) {
+          log.info("RAG chunk missing in mysql, articleId={}, embeddingId={}", targetArticleId, id);
+          continue;
+        }
+        if (!Objects.equals(chunk.getArticleId(), targetArticleId)) {
+          continue;
+        }
+        double score = similarity(query, chunk.getChunkText());
+        log.info("RAG candidate score, articleId={}, chunkId={}, chunkIndex={}, embeddingId={}, score={}",
+            targetArticleId, chunk.getId(), chunk.getChunkIndex(), chunk.getEmbeddingId(), score);
+        result.add(new KnowledgeChunkSearchResponse(
+            chunk.getId(),
+            chunk.getArticleId(),
+            chunk.getChunkIndex(),
+            chunk.getChunkText(),
+            chunk.getChunkSummary(),
+            chunk.getEmbeddingId(),
+            score));
+      }
     }
+
     result.sort((a, b) -> Double.compare(b.getScore(), a.getScore()));
     List<KnowledgeChunkSearchResponse> topResults = result.stream().limit(limit).toList();
     log.info("RAG search result size={}, articleId={}, query={}", topResults.size(), articleId, query);
@@ -148,6 +161,21 @@ public class KnowledgeArticleChunkServiceImpl implements KnowledgeArticleChunkSe
     }
     matches.sort((a, b) -> Double.compare(b.score, a.score));
     return matches.stream().limit(limit).map(m -> m.key).toList();
+  }
+
+  private List<Long> resolveTargetArticleIds(Long userId, Long articleId) {
+    if (articleId != null) {
+      KnowledgeArticle article = articleMapper.selectById(articleId);
+      if (article == null || !Objects.equals(article.getUserId(), userId) || Objects.equals(article.getStatus(), 1)) {
+        return List.of();
+      }
+      return List.of(articleId);
+    }
+
+    return articleMapper.selectByUserId(userId).stream()
+        .filter(article -> !Objects.equals(article.getStatus(), 1))
+        .map(KnowledgeArticle::getId)
+        .toList();
   }
 
   private double cosine(byte[] left, byte[] right) {

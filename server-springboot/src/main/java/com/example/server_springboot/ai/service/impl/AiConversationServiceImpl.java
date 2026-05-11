@@ -92,6 +92,7 @@ public class AiConversationServiceImpl implements AiConversationService {
             message.getContent(),
             message.getStatus(),
             message.getRequestId(),
+            message.getCitations(),
             message.getCreatedAt(),
             message.getUpdatedAt()))
         .collect(Collectors.toList());

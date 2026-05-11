@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { SimpleEditor } from '@/components/tiptap-templates/simple/simple-editor';
 import {
   createKnowledgeArticle,
@@ -24,6 +25,8 @@ function safeParseContent(content) {
 }
 
 export default function KnowledgeBasePage() {
+  const navigate = useNavigate();
+  const { articleId } = useParams();
   const [articles, setArticles] = useState([]);
   const [activeArticleId, setActiveArticleId] = useState(null);
   const [articleDetail, setArticleDetail] = useState(null);
@@ -50,7 +53,7 @@ export default function KnowledgeBasePage() {
     }
     const list = response.data?.data || [];
     setArticles(list);
-    setActiveArticleId((current) => current || list[0]?.articleId || null);
+    setActiveArticleId((current) => articleId || current || list[0]?.articleId || null);
     setIsLoading(false);
   }
 
@@ -70,12 +73,23 @@ export default function KnowledgeBasePage() {
 
   useEffect(() => {
     void loadArticles();
-  }, []);
+  }, [articleId]);
 
   useEffect(() => {
     if (!activeArticleId) return;
     void loadArticle(activeArticleId);
-  }, [activeArticleId]);
+    if (activeArticleId !== articleId) {
+      navigate(`/knowledge-base/${activeArticleId}`, { replace: true });
+    }
+  }, [activeArticleId, articleId, navigate]);
+
+  useEffect(() => {
+    if (!articleId) {
+      setActiveArticleId((current) => current || null);
+      return;
+    }
+    setActiveArticleId((current) => (current === articleId ? current : articleId));
+  }, [articleId]);
 
   async function handleCreateArticle() {
     setMessage('');
@@ -91,7 +105,9 @@ export default function KnowledgeBasePage() {
     }
     setMessage('文章已创建');
     await loadArticles();
-    setActiveArticleId(response.data.data.articleId);
+    const createdArticleId = response.data.data.articleId;
+    setActiveArticleId(createdArticleId);
+    navigate(`/knowledge-base/${createdArticleId}`, { replace: true });
   }
 
   async function handleSaveArticle(content) {
@@ -176,7 +192,10 @@ export default function KnowledgeBasePage() {
                 key={article.articleId}
                 type="button"
                 className={`kb-article-card ${activeArticleId === article.articleId ? 'is-active' : ''}`}
-                onClick={() => setActiveArticleId(article.articleId)}
+                onClick={() => {
+                  setActiveArticleId(article.articleId);
+                  navigate(`/knowledge-base/${article.articleId}`);
+                }}
               >
                 <div className="kb-article-card__top">
                   <strong>{article.title}</strong>
