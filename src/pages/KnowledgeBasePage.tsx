@@ -11,6 +11,7 @@ import {
   rollbackKnowledgeArticle,
   updateKnowledgeArticle,
 } from '@/api/kb';
+import '@/styles/knowledgeBase.css';
 
 const EMPTY_DOC = { type: 'doc', content: [{ type: 'paragraph' }] };
 

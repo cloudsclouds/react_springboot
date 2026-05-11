@@ -43,7 +43,7 @@
 .simple-editor-wrapper {
   min-height: 0;
   height: 100%;
-  overflow: auto;
+  overflow: hidden;
   overscroll-behavior: contain;
 }
 
@@ -57,9 +57,23 @@
   flex: 1;
 }
 
+.simple-editor-wrapper.is-readonly {
+  overflow: visible;
+}
+
+.simple-editor-wrapper.is-readonly .simple-editor-content {
+  max-width: 100%;
+  min-height: 0;
+}
+
 .simple-editor-content .tiptap.ProseMirror.simple-editor {
   flex: 1;
   padding: 3rem 3rem 30vh;
+}
+
+.simple-editor-wrapper.is-readonly .simple-editor-content .tiptap.ProseMirror.simple-editor {
+  min-height: 0;
+  padding: 1rem 1.25rem 4rem;
 }
 
 @media screen and (max-width: 480px) {

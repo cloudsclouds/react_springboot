@@ -365,28 +365,30 @@ export function SimpleEditor({ initialContent = content, onContentChange, readOn
   }, [isMobile, mobileView])
 
   return (
-    <div className="simple-editor-wrapper">
+    <div className={`simple-editor-wrapper ${readOnly ? 'is-readonly' : ''}`}>
       <EditorContext.Provider value={{ editor }}>
-        <Toolbar
-          ref={toolbarRef}
-          style={{
-            ...(isMobile
-              ? {
-                  bottom: `calc(100% - ${height - rect.y}px)`,
-                }
-              : {}),
-          }}>
-          {mobileView === "main" ? (
-            <MainToolbarContent
-              onHighlighterClick={() => setMobileView("highlighter")}
-              onLinkClick={() => setMobileView("link")}
-              isMobile={isMobile} />
-          ) : (
-            <MobileToolbarContent
-              type={mobileView === "highlighter" ? "highlighter" : "link"}
-              onBack={() => setMobileView("main")} />
-          )}
-        </Toolbar>
+        {!readOnly ? (
+          <Toolbar
+            ref={toolbarRef}
+            style={{
+              ...(isMobile
+                ? {
+                    bottom: `calc(100% - ${height - rect.y}px)`,
+                  }
+                : {}),
+            }}>
+            {mobileView === "main" ? (
+              <MainToolbarContent
+                onHighlighterClick={() => setMobileView("highlighter")}
+                onLinkClick={() => setMobileView("link")}
+                isMobile={isMobile} />
+            ) : (
+              <MobileToolbarContent
+                type={mobileView === "highlighter" ? "highlighter" : "link"}
+                onBack={() => setMobileView("main")} />
+            )}
+          </Toolbar>
+        ) : null}
 
         <EditorContent editor={editor} role="presentation" className="simple-editor-content" />
       </EditorContext.Provider>
