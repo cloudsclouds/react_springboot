@@ -38,7 +38,10 @@ public class ContinueEditorTaskAgent implements EditorTaskAgent {
   @Override
   public String generate(EditorAiExecuteRequest request) {
     String prompt = "你是续写智能体。请基于用户需求与上下文继续写作。\n"
-        + "要求：只输出续写正文；不要解释；与原文风格一致；避免重复已给内容。\n\n"
+        + "可以要求：\n"
+        + "1. 使用 Markdown 输出（可用标题、列表、引用、代码块）。\n"
+        + "2. 只输出续写正文；不要解释你的思路。\n"
+        + "3. 与原文风格一致，避免重复已给内容。\n\n"
         + "chatInput:\n" + safe(request.getChatInput()) + "\n\n"
         + "selectedText:\n" + safe(request.getSelectedText()) + "\n\n"
         + "surroundingContext:\n" + safe(request.getSurroundingContext()) + "\n\n"
@@ -48,7 +51,9 @@ public class ContinueEditorTaskAgent implements EditorTaskAgent {
 
   @Override
   public Map<String, Object> meta(EditorAiExecuteRequest request) {
-    return Map.of("action", request.getAction(), "intent", intent());
+    return new java.util.HashMap<>(Map.of(
+        "action", request.getAction() == null ? "" : request.getAction(),
+        "intent", intent()));
   }
 
   private String callModel(String prompt, EditorAiExecuteRequest request) {

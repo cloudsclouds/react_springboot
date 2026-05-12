@@ -124,11 +124,19 @@
   overflow: hidden;
 }
 
+.kb-version-card {
+  display: grid;
+  gap: 12px;
+  min-height: 360px;
+  max-height: 460px;
+}
+
 .kb-version-list {
   display: grid;
   gap: 12px;
-  max-height: 320px;
-  /* overflow-y: auto; */
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   padding-right: 4px;
 }
 

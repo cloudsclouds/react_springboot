@@ -38,8 +38,10 @@ public class TranslateEditorTaskAgent implements EditorTaskAgent {
   @Override
   public String generate(EditorAiExecuteRequest request) {
     String prompt = "你是翻译智能体。\n"
-        + "要求：仅输出翻译结果，不输出解释；术语前后一致；保持原段落结构。\n"
-        + "若 chatInput 中指定了目标语言，请严格遵守。\n\n"
+        + "要求：\n"
+        + "1. 可以使用 Markdown 输出，保持原段落/列表/标题层级结构。\n"
+        + "2. 仅输出翻译结果，不输出解释；术语前后一致。\n"
+        + "3. 若 chatInput 中指定了目标语言，请严格遵守。\n\n"
         + "chatInput:\n" + safe(request.getChatInput()) + "\n\n"
         + "selectedText:\n" + safe(request.getSelectedText()) + "\n\n"
         + "surroundingContext:\n" + safe(request.getSurroundingContext()) + "\n\n"
@@ -48,7 +50,11 @@ public class TranslateEditorTaskAgent implements EditorTaskAgent {
   }
 
   @Override
-  public Map<String, Object> meta(EditorAiExecuteRequest request) { return Map.of("action", request.getAction(), "intent", intent()); }
+  public Map<String, Object> meta(EditorAiExecuteRequest request) {
+    return new java.util.HashMap<>(Map.of(
+        "action", request.getAction() == null ? "" : request.getAction(),
+        "intent", intent()));
+  }
 
   private String callModel(String prompt, EditorAiExecuteRequest request) {
     try {

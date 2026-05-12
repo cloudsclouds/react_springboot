@@ -51,12 +51,13 @@ public class PolishEditorTaskAgent implements EditorTaskAgent {
 
   @Override
   public Map<String, Object> meta(EditorAiExecuteRequest request) {
-    return Map.of(
-        "action", request.getAction(),
-        "entryPoint", request.getEntryPoint(),
-        "selectedTextLength", request.getSelectedText() == null ? 0 : request.getSelectedText().length(),
-        "surroundingContextLength", request.getSurroundingContext() == null ? 0 : request.getSurroundingContext().length(),
-        "chatInputLength", request.getChatInput() == null ? 0 : request.getChatInput().length());
+    Map<String, Object> meta = new java.util.HashMap<>();
+    meta.put("action", request == null ? null : request.getAction());
+    meta.put("entryPoint", request == null ? null : request.getEntryPoint());
+    meta.put("selectedTextLength", request == null || request.getSelectedText() == null ? 0 : request.getSelectedText().length());
+    meta.put("surroundingContextLength", request == null || request.getSurroundingContext() == null ? 0 : request.getSurroundingContext().length());
+    meta.put("chatInputLength", request == null || request.getChatInput() == null ? 0 : request.getChatInput().length());
+    return meta;
   }
 
   private String buildPrompt(EditorAiExecuteRequest request) {
@@ -65,7 +66,8 @@ public class PolishEditorTaskAgent implements EditorTaskAgent {
     String chatInput = safeText(request.getChatInput());
     return "你是编辑器中的润色智能体，只负责润色文本，不要改动原意。\n"
         + "输出要求：\n"
-        + "1. 只输出润色后的正文，不要输出解释、标题、前缀、JSON、代码块。\n"
+        + "1. 可以使用 Markdown 输出（可保留段落/列表等结构）。\n"
+        + "2. 只输出润色后的正文，不要输出解释、前缀、JSON。\n"
         + "2. 保持原文事实不变，优化措辞、语气、结构和可读性。\n"
         + "3. 默认保持和原文一致的语言风格；如果原文是中文，就输出中文。\n"
         + "4. 如果输入过短，请尽量保持简洁自然。\n"

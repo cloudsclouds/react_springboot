@@ -38,7 +38,10 @@ public class SummaryEditorTaskAgent implements EditorTaskAgent {
   @Override
   public String generate(EditorAiExecuteRequest request) {
     String prompt = "你是总结智能体。请提炼核心信息，输出结构化总结。\n"
-        + "要求：优先依据 chatInput 指令；简洁、准确、不杜撰；只输出总结正文。\n\n"
+        + "要求：\n"
+        + "1. 可以使用 Markdown 输出，优先使用列表组织要点。\n"
+        + "2. 优先依据 chatInput 指令；简洁、准确、不杜撰。\n"
+        + "3. 只输出总结正文，不要解释过程。\n\n"
         + "chatInput:\n" + safe(request.getChatInput()) + "\n\n"
         + "selectedText:\n" + safe(request.getSelectedText()) + "\n\n"
         + "surroundingContext:\n" + safe(request.getSurroundingContext()) + "\n\n"
@@ -47,7 +50,11 @@ public class SummaryEditorTaskAgent implements EditorTaskAgent {
   }
 
   @Override
-  public Map<String, Object> meta(EditorAiExecuteRequest request) { return Map.of("action", request.getAction(), "intent", intent()); }
+  public Map<String, Object> meta(EditorAiExecuteRequest request) {
+    return new java.util.HashMap<>(Map.of(
+        "action", request.getAction() == null ? "" : request.getAction(),
+        "intent", intent()));
+  }
 
   private String callModel(String prompt) {
     try {

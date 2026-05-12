@@ -41,6 +41,24 @@ export interface UpdateKnowledgeArticlePayload {
   saveSource?: string;
 }
 
+export interface EditorAiExecutePayload {
+  articleId: number;
+  requestId: string;
+  entryPoint: 'selection' | 'context-menu' | 'toolbar' | 'editor' | string;
+  action?: string;
+  selectedText?: string;
+  surroundingContext?: string;
+  chatInput?: string;
+}
+
+export interface EditorAiExecuteData {
+  intent: string;
+  outputType: string;
+  outputText: string;
+  resultAction: string;
+  meta?: Record<string, unknown>;
+}
+
 export async function fetchKnowledgeArticles() {
   return getJson<ApiResponse<KnowledgeArticleListItem[]>>('/kb/articles');
 }
@@ -67,4 +85,8 @@ export async function fetchKnowledgeArticleVersions(articleId: number) {
 
 export async function rollbackKnowledgeArticle(articleId: number, versionNo: number) {
   return postJson<ApiResponse<{ articleId: number; versionNo: number }>>(`/kb/articles/${articleId}/rollback`, { versionNo });
+}
+
+export async function executeEditorAi(payload: EditorAiExecutePayload) {
+  return postJson<ApiResponse<EditorAiExecuteData>>('/ai/editor/execute', payload);
 }
