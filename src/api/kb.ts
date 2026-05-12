@@ -87,6 +87,6 @@ export async function rollbackKnowledgeArticle(articleId: number, versionNo: num
   return postJson<ApiResponse<{ articleId: number; versionNo: number }>>(`/kb/articles/${articleId}/rollback`, { versionNo });
 }
 
-export async function executeEditorAi(payload: EditorAiExecutePayload) {
-  return postJson<ApiResponse<EditorAiExecuteData>>('/ai/editor/execute', payload);
+export async function executeEditorAi(payload: EditorAiExecutePayload, options?: { signal?: AbortSignal }) {
+  return postJson<ApiResponse<EditorAiExecuteData>>('/ai/editor/execute', payload, options);
 }

@@ -37,16 +37,31 @@ export default function RagPreviewPanel({
     setShowFullText(false);
   }, [activeCitationId, isOpen]);
 
+  /**
+   * 构建文章文档
+   */ 
   const articleDoc = buildArticleDoc(preview);
+  /**
+   * 获取文章文本
+   */
   const articleText = articleDoc ? extractTextFromDoc(articleDoc) : activeCitation?.chunkText ?? '';
+  /**
+   * 获取全文文本
+   */
   const fullText = articleText || activeCitation?.chunkText || '';
 
+  /**
+   * 获取片段文本
+   */
   const snippetText = useMemo(() => {
     if (!activeCitation) return '';
     if (previewLoading) return '正在加载预览…';
     return extractChunkPreview(articleText, activeCitation);
   }, [activeCitation, articleText, extractChunkPreview, previewLoading]);
 
+  /**
+   * 渲染 RAG 引用预览面板
+   */
   return (
     <aside className={`panel rag-panel ai-chat-page__preview ${isOpen ? 'is-open' : 'is-collapsed'}`} aria-label="RAG 引用预览面板">
       <button type="button" className="rag-panel__collapse" onClick={onToggleOpen} aria-label={isOpen ? '收起预览面板' : '展开预览面板'}>

@@ -41,6 +41,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+/**
+ * 聊天服务实现
+ */
 @Service
 @RequiredArgsConstructor
 public class AiChatServiceImpl implements AiChatService {
@@ -59,22 +62,37 @@ public class AiChatServiceImpl implements AiChatService {
   private final KnowledgeArticleService knowledgeArticleService;
   private final KnowledgeArticleChunkService knowledgeArticleChunkService;
 
+  /**
+   * 聊天
+   * @param request 请求
+   * @param userId 用户 ID
+   * @return 响应
+   */
   @Override
   public ChatResponse chat(ChatRequest request, Long userId) {
+    // 验证会话
     AiConversation conversation = verifyConversation(request.getConversationId(), userId);
+    // 加载会话历史
     List<AiConversationMessage> history = loadConversationHistory(conversation.getId());
-
+    // 创建用户消息
     AiConversationMessage userMessage = createMessage(conversation.getId(), "user", request.getMessage(), "COMPLETED", request.getRequestId());
+    // 插入用户消息
     aiConversationMessageMapper.insert(userMessage);
+    // 添加用户消息到会话历史
     history.add(userMessage);
+    // 缓存会话历史到 Redis
     cacheHistoryToRedis(conversation.getId(), history);
-
+    // 更新会话使用 RAG
     Boolean useRag = request.getUseRag() != null ? request.getUseRag() : conversation.getUseRag();
     aiConversationMapper.updateUseRagById(conversation.getId(), userId, useRag);
+    // 构建引用
     List<ChatCitationDto> citations = buildCitations(useRag, request.getMessage(), request.getArticleId(), request.getTopK(), userId);
     String prompt = buildPrompt(request.getMessage(), citations);
+    // 构建消息
     List<Message> messages = buildMessages(history, prompt);
+    // 生成答案
     String answer = generateOnce(messages);
+    // 返回响应
     return new ChatResponse(answer, citations, !citations.isEmpty());
   }
 
@@ -252,28 +270,45 @@ public class AiChatServiceImpl implements AiChatService {
         .toList();
   }
 
+  /**
+   * 构建引用
+   * @param useRag 是否使用 RAG
+   * @param query 查询
+   * @param articleId 文章 ID
+   * @param topK 最大引用数
+   * @param userId 用户 ID
+   * @return 引用列表
+   */
   private List<ChatCitationDto> buildCitations(Boolean useRag, String query, Long articleId, Integer topK, Long userId) {
     if (useRag == null || !useRag) {
       return List.of();
     }
-
+    // 解析 RAG 文章 ID 
     List<Long> targetArticleIds = resolveRagArticleIds(articleId, userId);
+    // 如果 RAG 文章 ID 为空，则返回空列表
     if (targetArticleIds.isEmpty()) {
       return List.of();
     }
-
+    // 创建引用列表
     List<ChatCitationDto> citations = new ArrayList<>();
+    // 剩余引用数
     int remaining = topK == null || topK <= 0 ? 5 : topK;
+    // 遍历 RAG 文章 ID
     for (Long targetArticleId : targetArticleIds) {
       if (remaining <= 0) {
         break;
       }
+      // 搜索文章块
       var searchResponse = knowledgeArticleChunkService.searchChunks(userId, query, targetArticleId, remaining);
+      // 如果搜索响应为空，则跳过
       List<KnowledgeChunkSearchResponse> chunks = searchResponse == null ? List.of() : searchResponse.getData();
+      // 如果文章块为空，则跳过
       if (chunks == null || chunks.isEmpty()) {
         continue;
       }
+      // 遍历文章块
       for (KnowledgeChunkSearchResponse chunk : chunks) {
+        // 如果文章块不可见，则跳过
         if (!isArticleVisible(chunk.getArticleId(), userId)) {
           continue;
         }
@@ -299,6 +334,12 @@ public class AiChatServiceImpl implements AiChatService {
     return citations;
   }
 
+  /**
+   * 构建提示词
+   * @param question 问题
+   * @param citations 引用列表
+   * @return 提示词
+   */
   private String buildPrompt(String question, List<ChatCitationDto> citations) {
     if (citations == null || citations.isEmpty()) {
       return "";
@@ -320,6 +361,11 @@ public class AiChatServiceImpl implements AiChatService {
     return builder.toString();
   }
 
+  /**
+   * 生成答案
+   * @param messages 消息
+   * @return 答案
+   */
   private String generateOnce(List<Message> messages) {
     StringBuilder answer = new StringBuilder();
     try {
@@ -349,6 +395,11 @@ public class AiChatServiceImpl implements AiChatService {
     }
   }
 
+  /**
+   * 构建生成参数
+   * @param messages 消息
+   * @return 生成参数
+   */
   private GenerationParam buildGenerationParam(List<Message> messages) {
     return GenerationParam.builder()
         .apiKey(aiProperties.getApiKey())
@@ -360,6 +411,12 @@ public class AiChatServiceImpl implements AiChatService {
         .build();
   }
 
+  /**
+   * 是否停止
+   * @param conversationId 会话 ID
+   * @param requestId 请求 ID
+   * @return 是否停止
+   */
   private boolean isStopped(Long conversationId, String requestId) {
     String currentRequestId = ACTIVE_REQUESTS.get(conversationId);
     if (currentRequestId == null || !currentRequestId.equals(requestId)) {
@@ -388,6 +445,11 @@ public class AiChatServiceImpl implements AiChatService {
     return message;
   }
 
+  /**
+   * 加载会话历史
+   * @param conversationId 会话 ID
+   * @return 会话历史
+   */
   private List<AiConversationMessage> loadConversationHistory(Long conversationId) {
     String cacheKey = REDIS_CONVERSATION_HISTORY_KEY_PREFIX + conversationId;
     ListOperations<String, String> listOps = stringRedisTemplate.opsForList();
@@ -409,6 +471,11 @@ public class AiChatServiceImpl implements AiChatService {
     return dbHistory;
   }
 
+  /**
+   * 缓存会话历史到 Redis
+   * @param conversationId 会话 ID
+   * @param messages 消息
+   */
   private void cacheHistoryToRedis(Long conversationId, List<AiConversationMessage> messages) {
     String cacheKey = REDIS_CONVERSATION_HISTORY_KEY_PREFIX + conversationId;
     ListOperations<String, String> listOps = stringRedisTemplate.opsForList();
@@ -425,6 +492,12 @@ public class AiChatServiceImpl implements AiChatService {
     stringRedisTemplate.expire(cacheKey, Duration.ofHours(2));
   }
 
+  /**
+   * 构建消息
+   * @param history 会话历史
+   * @param systemPrompt 系统提示词
+   * @return 消息
+   */
   private List<Message> buildMessages(List<AiConversationMessage> history, String systemPrompt) {
     List<Message> messages = new ArrayList<>();
     messages.add(Message.builder().role(Role.SYSTEM.getValue()).content("You are a helpful assistant.").build());

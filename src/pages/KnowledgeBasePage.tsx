@@ -57,12 +57,21 @@ export default function KnowledgeBasePage() {
   const savingPromiseRef = useRef(null);
   const editorRef = useRef(null);
   const selectionRangeRef = useRef(null);
+  const aiAbortControllerRef = useRef(null);
+  
+  /**
+   * 过滤文章
+   * @returns 过滤后的文章
+   */
   const filteredArticles = useMemo(() => {
     const q = searchText.trim().toLowerCase();
     if (!q) return articles;
     return articles.filter((article) => `${article.title} ${article.summary}`.toLowerCase().includes(q));
   }, [articles, searchText]);
 
+  /**
+   * 加载文章列表
+   */
   async function loadArticles() {
     setIsLoading(true);
     const response = await fetchKnowledgeArticles();
@@ -77,9 +86,16 @@ export default function KnowledgeBasePage() {
     setIsLoading(false);
   }
 
+  /**
+   * 加载文章详情
+   * @param articleId 文章 ID
+   */
   async function loadArticle(articleId) {
+    // 如果文章 ID 不存在，则返回
     if (!articleId) return;
+    // 加载文章详情
     const response = await fetchKnowledgeArticle(articleId);
+    // 如果加载失败，则设置错误信息
     if (!response.ok) {
       setErrorMessage(response.data?.message || '加载文章详情失败');
       return;
@@ -111,6 +127,9 @@ export default function KnowledgeBasePage() {
       if (autosaveTimerRef.current) {
         clearInterval(autosaveTimerRef.current);
       }
+      if (aiAbortControllerRef.current) {
+        aiAbortControllerRef.current.abort();
+      }
     };
   }, []);
 
@@ -123,7 +142,11 @@ export default function KnowledgeBasePage() {
   }, [articleId]);
 
   useEffect(() => {
+    /**
+     * 处理 beforeunload 事件
+     */
     const handleBeforeUnload = () => {
+      // 如果存在未保存更改，且文章 ID 存在，且没有保存承诺，则保存草稿
       if (hasUnsavedChanges && articleDetail?.articleId && !savingPromiseRef.current) {
         void saveArticle(draftContent, 'autosave');
       }
@@ -132,6 +155,9 @@ export default function KnowledgeBasePage() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [hasUnsavedChanges, draftContent, articleDetail?.articleId]);
 
+  /**
+   * 创建文章
+   */
   async function handleCreateArticle() {
     setMessage('');
     setErrorMessage('');
@@ -158,6 +184,11 @@ export default function KnowledgeBasePage() {
     navigate(`/knowledge-base/${createdArticleId}`, { replace: true });
   }
 
+  /**
+   * 保存文章
+   * @param content 内容
+   * @param saveSource 保存来源
+   */
   async function saveArticle(content, saveSource) {
     if (!articleDetail?.articleId || isSaving || savingPromiseRef.current) return;
     setIsSaving(true);
@@ -192,12 +223,21 @@ export default function KnowledgeBasePage() {
     }
   }
 
+  /**
+   * 手动保存
+   */
   async function handleManualSave() {
     await saveArticle(draftContent, 'manual');
   }
 
+  /**
+   * 删除文章
+   * @param articleId 文章 ID
+   */
   async function handleDeleteArticle(articleId) {
+    // 删除文章
     const response = await deleteKnowledgeArticle(articleId);
+    // 如果删除失败，则设置错误信息
     if (!response.ok) {
       setErrorMessage(response.data?.message || '删除失败');
       return;
@@ -207,9 +247,14 @@ export default function KnowledgeBasePage() {
     setActiveArticleId((current) => (normalizeArticleId(current) === normalizeArticleId(articleId) ? null : current));
   }
 
+  /**
+   * 切换文章
+   * @param nextArticleId 下一个文章 ID
+   */
   async function switchArticle(nextArticleId) {
     if (!nextArticleId || nextArticleId === activeArticleId || isSwitchingArticle) return;
     setIsSwitchingArticle(true);
+    // 保存草稿
     if (hasUnsavedChanges) {
       await saveArticle(draftContent, 'manual');
     }
@@ -218,6 +263,10 @@ export default function KnowledgeBasePage() {
     setIsSwitchingArticle(false);
   }
 
+  /**
+   * 回滚文章
+   * @param versionNo 版本号
+   */
   async function handleRollback(versionNo) {
     if (!articleDetail?.articleId) return;
     const response = await rollbackKnowledgeArticle(articleDetail.articleId, versionNo);
@@ -241,6 +290,7 @@ export default function KnowledgeBasePage() {
     if (autosaveTimerRef.current) {
       clearInterval(autosaveTimerRef.current);
     }
+    // 设置自动保存定时器
     autosaveTimerRef.current = window.setInterval(() => {
       void saveArticle(draftContent, 'autosave');
     }, 60_000);
@@ -251,15 +301,27 @@ export default function KnowledgeBasePage() {
     };
   }, [hasUnsavedChanges, draftContent, articleDetail?.articleId]);
 
+  /**
+   * 应用 AI 结果到编辑器
+   * @param resultAction 结果动作
+   * @param aiText AI 文本
+   * @returns 是否应用成功
+   */
   const applyAiResultToEditor = useCallback((resultAction, aiText) => {
     const editor = editorRef.current;
+    // 如果编辑器引用不存在，或 AI 文本为空，则返回 false
     if (!editor || !aiText?.trim()) return false;
 
+    // 获取 AI 文本
     const text = aiText.trim();
+    // 渲染 HTML
     const renderedHtml = md.render(text);
 
+    // 如果结果动作是替换，则替换选中的文本
     if (resultAction === 'replace') {
+      // 获取选中的文本
       const { from, to } = editor.state.selection;
+      // 如果选中的文本不为空，则替换选中的文本
       if (from !== to) {
         editor.chain().focus().insertContentAt({ from, to }, renderedHtml).run();
       } else {
@@ -268,13 +330,18 @@ export default function KnowledgeBasePage() {
       return true;
     }
 
+    // 如果结果动作是插入到后面，则插入到后面
     if (resultAction === 'insertAfter') {
+      // 获取选中的文本的末尾位置
       const pos = editor.state.selection.to;
+      // 插入到后面
       editor.chain().focus().insertContentAt(pos, renderedHtml).run();
       return true;
     }
 
+    // 如果结果动作是追加块，则追加块
     if (resultAction === 'appendBlock') {
+      // 追加块
       editor.chain().focus('end').insertContent(renderedHtml).run();
       return true;
     }
@@ -283,6 +350,9 @@ export default function KnowledgeBasePage() {
   }, []);
 
   useEffect(() => {
+    /**
+     * 处理点击外部事件
+     */
     const onClickOutside = () => {
       setAiMenu((prev) => (prev.visible ? { ...prev, visible: false } : prev));
     };
@@ -293,16 +363,25 @@ export default function KnowledgeBasePage() {
   useEffect(() => {
     if (!aiMenu.visible) return;
 
+    /**
+     * 更新锚点位置
+     */
     const updateAnchorPosition = () => {
+      // 获取选中的文本范围
       const range = selectionRangeRef.current;
       if (!range) return;
+      // 获取选中的文本范围的矩形
       const rect = range.getBoundingClientRect();
+      // 如果矩形不存在，或矩形的宽度为 0，且高度为 0，则返回
       if (!rect || (rect.width === 0 && rect.height === 0)) return;
       const nextX = Math.max(12, Math.min(window.innerWidth - 436, rect.left + rect.width / 2 - 180));
       const nextY = Math.max(12, rect.bottom + 8);
       setAiMenu((prev) => ({ ...prev, x: nextX, y: nextY }));
     };
 
+    /**
+     * 处理选中文本变化
+     */
     const onSelectionChange = () => {
       const selection = window.getSelection();
       if (!selection || selection.rangeCount === 0) return;
@@ -325,60 +404,89 @@ export default function KnowledgeBasePage() {
     };
   }, [aiMenu.visible]);
 
+  /**
+   * 终止 AI 生成
+   */
+  function handleAbortAiExecute() {
+    if (!aiAbortControllerRef.current) return;
+    aiAbortControllerRef.current.abort();
+  }
+
+  /**
+   * 执行 AI
+   */
   async function handleAiExecute() {
     if (!articleDetail?.articleId || !aiChatInput.trim() || isAiRunning) return;
+    const abortController = new AbortController();
+    aiAbortControllerRef.current = abortController;
     setIsAiRunning(true);
     setMessage('');
     setErrorMessage('');
-    const requestId = `req-${Date.now()}`;
-    const response = await executeEditorAi({
-      articleId: Number(articleDetail.articleId),
-      requestId,
-      entryPoint: 'context-menu',
-      selectedText: aiSelectedText,
-      surroundingContext: JSON.stringify(draftContent || EMPTY_DOC).slice(0, 500),
-      chatInput: aiChatInput.trim(),
-    });
-    if (!response.ok || !response.data?.success) {
-      setErrorMessage(response.data?.message || 'AI 执行失败');
-      setIsAiRunning(false);
-      return;
-    }
 
-    const aiData = response.data?.data;
-    const aiText = aiData?.outputText || '';
-    const resultAction = aiData?.resultAction || 'previewOnly';
+    try {
+      const requestId = `req-${Date.now()}`;
+      const response = await executeEditorAi(
+        {
+          articleId: Number(articleDetail.articleId),
+          requestId,
+          entryPoint: 'context-menu',
+          selectedText: aiSelectedText,
+          surroundingContext: JSON.stringify(draftContent || EMPTY_DOC).slice(0, 500),
+          chatInput: aiChatInput.trim(),
+        },
+        { signal: abortController.signal },
+      );
 
-    if (!aiText && resultAction !== 'previewOnly') {
-      setErrorMessage('AI 未返回结果');
-      setIsAiRunning(false);
-      return;
-    }
+      if (!response.ok || !response.data?.success) {
+        setErrorMessage(response.data?.message || 'AI 执行失败');
+        return;
+      }
 
-    if (resultAction === 'previewOnly') {
-      setMessage(aiText || 'AI 已完成预览建议');
-      setIsAiRunning(false);
+      const aiData = response.data?.data;
+      const aiText = aiData?.outputText || '';
+      const resultAction = aiData?.resultAction || 'previewOnly';
+
+      if (!aiText && resultAction !== 'previewOnly') {
+        setErrorMessage('AI 未返回结果');
+        return;
+      }
+
+      if (resultAction === 'previewOnly') {
+        setMessage(aiText || 'AI 已完成预览建议');
+        setAiChatInput('');
+        setAiMenu((prev) => ({ ...prev, visible: false }));
+        return;
+      }
+
+      const applied = applyAiResultToEditor(resultAction, aiText);
+      // 如果应用失败，则设置错误信息
+      if (!applied) {
+        setErrorMessage('当前 AI 返回动作暂不支持自动写入');
+        return;
+      }
+
+      // 如果编辑器引用存在，则设置草稿内容
+      if (editorRef.current) {
+        // 获取最新的内容
+        const latest = editorRef.current.getJSON();
+        // 设置草稿内容
+        setDraftContent(latest);
+        // 设置有未保存更改
+        setHasUnsavedChanges(true);
+      }
       setAiChatInput('');
       setAiMenu((prev) => ({ ...prev, visible: false }));
-      return;
-    }
-
-    const applied = applyAiResultToEditor(resultAction, aiText);
-    if (!applied) {
-      setErrorMessage('当前 AI 返回动作暂不支持自动写入');
+      setMessage(`AI 文本处理完成（${resultAction}），请确认后保存`);
+    } catch (e) {
+      if (e?.name === 'AbortError') {
+        setMessage('已中断 AI 生成');
+      } else {
+        setErrorMessage('AI 请求异常，请稍后重试');
+      }
+    } finally {
+      aiAbortControllerRef.current = null;
       setIsAiRunning(false);
-      return;
     }
-
-    if (editorRef.current) {
-      const latest = editorRef.current.getJSON();
-      setDraftContent(latest);
-      setHasUnsavedChanges(true);
-    }
-    setAiChatInput('');
-    setAiMenu((prev) => ({ ...prev, visible: false }));
-    setMessage(`AI 文本处理完成（${resultAction}），请确认后保存`);
-    setIsAiRunning(false);
   }
 
   const initialContent = useMemo(() => safeParseContent(articleDetail?.content), [articleDetail?.content]);
@@ -447,16 +555,27 @@ export default function KnowledgeBasePage() {
           </div>
 
           <div
-            className="kb-editor-workbench"
-            onContextMenu={(e) => {
+            className={`kb-editor-workbench ${isAiRunning ? 'is-ai-generating' : ''}`}
+            onContextMenuCapture={(e) => {
+              // 如果 AI 正在运行，则不处理右键菜单
+              if (isAiRunning) return;
+              // 阻止默认行为
               e.preventDefault();
+              e.stopPropagation();
+              // 获取选中的文本
               const selection = window.getSelection();
+              // 获取选中的文本
               const selected = selection?.toString() || '';
+              // 如果选中的文本不为空，则设置选中的文本
               if (selection && selection.rangeCount > 0 && !selection.getRangeAt(0).collapsed) {
                 selectionRangeRef.current = selection.getRangeAt(0).cloneRange();
+                // 获取选中的文本的矩形
                 const rect = selectionRangeRef.current.getBoundingClientRect();
+                // 计算下一个 X 坐标
                 const nextX = Math.max(12, Math.min(window.innerWidth - 436, rect.left + rect.width / 2 - 180));
+                // 计算下一个 Y 坐标
                 const nextY = Math.max(12, rect.bottom + 8);
+                // 设置 AI 菜单的可见性
                 setAiMenu({ visible: true, x: nextX, y: nextY });
               } else {
                 selectionRangeRef.current = null;
@@ -465,18 +584,44 @@ export default function KnowledgeBasePage() {
               setAiSelectedText(selected.trim());
             }}
           >
+            {/* 编辑器 */}
             <SimpleEditor
-              initialContent={initialContent}
+              // 初始内容
+              initialContent={initialContent}  
+              // 是否只读
+              readOnly={isAiRunning}
+              // 编辑器准备就绪
               onEditorReady={(editor) => {
+                // 设置编辑器引用
                 editorRef.current = editor;
-              }}
+              }} 
+              // 内容改变
               onContentChange={(nextContent) => {
+                // 如果 AI 正在运行，则不处理内容改变
+                if (isAiRunning) return;
+                // 设置草稿内容
                 setDraftContent(nextContent);
+                // 设置有未保存更改
                 setHasUnsavedChanges(true);
               }}
             />
+
+            {/* AI 正在生成中 */}
+            {isAiRunning ? (
+              <div className="kb-ai-generating-overlay" role="status" aria-live="polite">
+                <div className="kb-ai-generating-card">
+                  <div className="kb-ai-generating-spinner" />
+                  <div>
+                    <strong>AI 正在生成中...</strong>
+                    <p>请稍候，生成完成后会自动写入编辑器。</p>
+                  </div>
+                  <button type="button" className="secondary-button" onClick={handleAbortAiExecute}>中断生成</button>
+                </div>
+              </div>
+            ) : null}
           </div>
 
+          {/* AI 菜单 */}
           {aiMenu.visible ? (
             <div
               className="kb-ai-context-dialog"
@@ -486,7 +631,9 @@ export default function KnowledgeBasePage() {
               <div className="kb-ai-context-dialog__title">AI 文本操作</div>
               <textarea
                 className="kb-ai-context-dialog__input"
+                // AI 聊天输入
                 value={aiChatInput}
+                // AI 聊天输入改变
                 onChange={(e) => setAiChatInput(e.target.value)}
                 placeholder="请输入需求，例如：请润色这段话"
               />

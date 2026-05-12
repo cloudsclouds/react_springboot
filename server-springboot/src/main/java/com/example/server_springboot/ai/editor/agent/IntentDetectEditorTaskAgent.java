@@ -17,6 +17,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+/**
+ * 意图识别编辑器任务智能体
+ */
 @Component
 @RequiredArgsConstructor
 public class IntentDetectEditorTaskAgent implements EditorTaskAgent {
@@ -47,8 +50,11 @@ public class IntentDetectEditorTaskAgent implements EditorTaskAgent {
 
   @Override
   public String generate(EditorAiExecuteRequest request) {
+    // 构建提示词
     String prompt = buildPrompt(request);
+    // 调用模型
     String modelOutput = callModel(prompt);
+    // 归一化动作
     return normalizeAction(modelOutput);
   }
 
@@ -61,9 +67,13 @@ public class IntentDetectEditorTaskAgent implements EditorTaskAgent {
   }
 
   private String buildPrompt(EditorAiExecuteRequest request) {
+    // 安全处理选中文本
     String selectedText = safeText(request.getSelectedText());
+    // 安全处理周围上下文
     String surroundingContext = safeText(request.getSurroundingContext());
+    // 安全处理聊天输入
     String chatInput = safeText(request.getChatInput());
+    // 构建提示词
     return "你是编辑器 AI 的意图识别器。\n"
         + "请根据用户输入判断最合适的动作，只能从以下六个值中选择一个：continue / polish / summary / translate / mermaid / unknown。\n"
         + "输出要求：\n"
@@ -82,19 +92,27 @@ public class IntentDetectEditorTaskAgent implements EditorTaskAgent {
         + "请直接输出一个动作：";
   }
 
+  /**
+   * 调用模型
+   * @param prompt 提示词
+   * @return 模型输出
+   */
   private String callModel(String prompt) {
+    // 构建生成参数
     try {
-      GenerationParam param = GenerationParam.builder()
-          .apiKey(aiProperties.getApiKey())
-          .model(aiProperties.getModelName())
+      GenerationParam param = GenerationParam.builder() // 构建生成参数 对象
+          .apiKey(aiProperties.getApiKey()) // 设置 API 密钥
+          .model(aiProperties.getModelName()) // 设置模型名称
           .messages(List.of(
-              Message.builder().role(Role.SYSTEM.getValue()).content("You are a strict intent classifier for editor actions.").build(),
-              Message.builder().role(Role.USER.getValue()).content(prompt).build()))
+              Message.builder().role(Role.SYSTEM.getValue()).content("You are a strict intent classifier for editor actions.").build(), // 设置系统提示词
+              Message.builder().role(Role.USER.getValue()).content(prompt).build())) // 设置用户提示词
           .temperature(0.0f)
-          .maxTokens(16)
-          .resultFormat(GenerationParam.ResultFormat.MESSAGE)
+          .maxTokens(16) // 设置最大令牌数
+          .resultFormat(GenerationParam.ResultFormat.MESSAGE) // 设置结果格式 
           .build();
+      // 创建一个倒计时锁，用于等待生成结果
       CountDownLatch latch = new CountDownLatch(1);
+      // 创建一个原子引用，用于存储生成结果，初始值为空字符串
       AtomicReference<String> answer = new AtomicReference<>("");
       generation.streamCall(param, new ResultCallback<GenerationResult>() {
         @Override
@@ -122,6 +140,11 @@ public class IntentDetectEditorTaskAgent implements EditorTaskAgent {
     }
   }
 
+  /**
+   * 归一化动作
+   * @param output 输出
+   * @return 归一化动作
+   */
   private String normalizeAction(String output) {
     if (!StringUtils.hasText(output)) {
       return "unknown";
@@ -147,6 +170,11 @@ public class IntentDetectEditorTaskAgent implements EditorTaskAgent {
     return "polish";
   }
 
+  /**
+   * 提取生成结果的内容
+   * @param result 生成结果
+   * @return 生成结果的内容
+   */
   private String extractContent(GenerationResult result) {
     if (result == null || result.getOutput() == null || result.getOutput().getChoices() == null || result.getOutput().getChoices().isEmpty()) {
       return "";
