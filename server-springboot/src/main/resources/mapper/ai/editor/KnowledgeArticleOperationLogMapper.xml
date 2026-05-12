@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.server_springboot.ai.editor.mapper.KnowledgeArticleOperationLogMapper">
+
+  <resultMap id="KnowledgeArticleOperationLogResultMap" type="com.example.server_springboot.ai.editor.entity.KnowledgeArticleOperationLog">
+    <id column="id" property="id"/>
+    <result column="user_id" property="userId"/>
+    <result column="article_id" property="articleId"/>
+    <result column="conversation_id" property="conversationId"/>
+    <result column="request_id" property="requestId"/>
+    <result column="operation_type" property="operationType"/>
+    <result column="change_mode" property="changeMode"/>
+    <result column="intent" property="intent"/>
+    <result column="entry_point" property="entryPoint"/>
+    <result column="input_text" property="inputText"/>
+    <result column="selected_text" property="selectedText"/>
+    <result column="output_text" property="outputText"/>
+    <result column="result_action" property="resultAction"/>
+    <result column="before_snapshot" property="beforeSnapshot"/>
+    <result column="after_snapshot" property="afterSnapshot"/>
+    <result column="delta_json" property="deltaJson"/>
+    <result column="ref_operation_id" property="refOperationId"/>
+    <result column="status" property="status"/>
+    <result column="error_message" property="errorMessage"/>
+    <result column="latency_ms" property="latencyMs"/>
+    <result column="created_at" property="createdAt"/>
+  </resultMap>
+
+  <insert id="insert" parameterType="com.example.server_springboot.ai.editor.entity.KnowledgeArticleOperationLog" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO knowledge_article_operation_log (
+      user_id, article_id, conversation_id, request_id, operation_type, change_mode, intent,
+      entry_point, input_text, selected_text, output_text, result_action, before_snapshot,
+      after_snapshot, delta_json, ref_operation_id, status, error_message, latency_ms, created_at
+    ) VALUES (
+      #{userId}, #{articleId}, #{conversationId}, #{requestId}, #{operationType}, #{changeMode}, #{intent},
+      #{entryPoint}, #{inputText}, #{selectedText}, #{outputText}, #{resultAction}, #{beforeSnapshot},
+      #{afterSnapshot}, #{deltaJson}, #{refOperationId}, #{status}, #{errorMessage}, #{latencyMs}, #{createdAt}
+    )
+  </insert>
+</mapper>

@@ -144,43 +144,6 @@
 | embedding_id  | VARCHAR(128) | Redis 向量记录 ID |
 | created_at    | TIMESTAMP    | 创建时间          |
 
-
-### 5.4 通用操作日志表 `knowledge_article_operation_log`
-
-> 仅记录 AI 相关操作，不记录普通手动编辑。该表用于追踪 AI 编辑请求、响应、状态、耗时与回滚链路。
-
-| 字段名              | 类型           | 说明                                         |
-| ---------------- | ------------ | ------------------------------------------ |
-| id               | BIGINT       | 主键                                         |
-| user_id          | BIGINT       | 操作用户 ID                                    |
-| article_id       | BIGINT       | 文章 ID                                      |
-| conversation_id  | BIGINT       | 可选，会话 ID（AI 对话场景）                          |
-| request_id       | VARCHAR(64)  | 可选，请求标识（AI 场景）                             |
-| operation_type   | VARCHAR(30)  | 操作类型（AI_APPLY / AI_GENERATE / AI_CANCEL / AI_RETRY / UNDO / REDO） |
-| change_mode      | VARCHAR(20)  | 变更模式（SNAPSHOT / DELTA）                     |
-| intent           | VARCHAR(50)  | 可选，AI 意图（polish/summary/...）               |
-| entry_point      | VARCHAR(50)  | 入口（selection/context-menu/toolbar/editor）  |
-| input_text       | LONGTEXT     | 可选，AI 输入                                   |
-| selected_text    | LONGTEXT     | 可选，选中文本                                    |
-| output_text      | LONGTEXT     | 可选，AI 输出                                   |
-| result_action    | VARCHAR(30)  | 可选，回填动作                                    |
-| before_snapshot  | LONGTEXT     | 变更前快照（局部或整文）                               |
-| after_snapshot   | LONGTEXT     | 变更后快照（局部或整文）                               |
-| delta_json       | LONGTEXT     | 增量内容（JSON Patch 或自定义 diff）                 |
-| ref_operation_id | BIGINT       | 关联原操作（UNDO/REDO 使用）                        |
-| status           | VARCHAR(20)  | 状态（SUCCESS / FAILED / STOPPED）             |
-| error_message    | VARCHAR(500) | 失败原因                                       |
-| latency_ms       | INT          | 处理耗时                                       |
-| created_at       | TIMESTAMP    | 创建时间                                       |
-
-设计说明：
-
-- 仅当操作属于 AI 生成、AI 应用、AI 撤销/重做、AI 取消或 AI 重试时写入该表。
-- 普通编辑、普通删除、普通剪切/粘贴、前端撤销/重做栈切换都不写入该表。
-- `UNDO` / `REDO` 记录通过 `ref_operation_id` 指向被影响的原操作。
-- 若只做快照，可只写 `before_snapshot` / `after_snapshot`，忽略 `delta_json`。
-- AI 操作若最终未落库，仅记录过程日志；若落库成功，也应在版本表生成对应版本。
-
 ## 5.5 Redis/向量索引约定
 
 - `kb:rag:vector:{embeddingId}`：单向量记录
