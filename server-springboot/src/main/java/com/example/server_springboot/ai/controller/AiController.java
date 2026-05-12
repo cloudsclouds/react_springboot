@@ -22,6 +22,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+/**
+ * AI 控制器
+ */
 @RestController
 @RequestMapping("/api/ai")
 @RequiredArgsConstructor
@@ -30,31 +33,37 @@ public class AiController {
   private final AiConversationService aiConversationService;
   private final AiChatService aiChatService;
 
+  // 创建会话
   @PostMapping("/conversations")
   public CreateConversationResponse createConversation(@Valid @RequestBody CreateConversationRequest request) {
     return aiConversationService.createConversation(request, UserContext.getUserId());
   }
 
+  // 获取会话列表
   @GetMapping("/conversations")
   public List<ConversationListItemResponse> listConversations() {
     return aiConversationService.listConversations(UserContext.getUserId());
   }
 
+  // 获取会话详情
   @GetMapping("/conversations/{conversationId}/detail")
   public ConversationDetailResponse getConversationDetail(@PathVariable Long conversationId) {
     return aiConversationService.getConversationDetail(conversationId, UserContext.getUserId());
   }
 
+  // 聊天
   @PostMapping("/chat")
   public ChatResponse chat(@Valid @RequestBody ChatRequest request) {
     return aiChatService.chat(request, UserContext.getUserId());
   }
 
+  // 流式聊天
   @PostMapping(value = "/chat/stream", produces = "text/event-stream")
   public SseEmitter streamChat(@Valid @RequestBody ChatStreamRequest request) {
     return aiChatService.streamChat(request, UserContext.getUserId());
   }
 
+  // 停止生成
   @PostMapping("/chat/stop")
   public void stopGeneration(@Valid @RequestBody StopGenerationRequest request) {
     aiChatService.stopGeneration(request.getConversationId(), UserContext.getUserId());

@@ -122,6 +122,89 @@
   border: 1px solid var(--shell-border);
   border-radius: 20px;
   overflow: hidden;
+  position: relative;
+}
+
+.kb-editor-workbench.is-ai-generating {
+  cursor: wait;
+}
+
+.kb-ai-generating-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: color-mix(in oklab, var(--shell-surface) 35%, transparent);
+  backdrop-filter: blur(2px);
+  display: grid;
+  place-items: center;
+  pointer-events: all;
+}
+
+.kb-ai-generating-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--shell-border);
+  border-radius: 14px;
+  background: var(--shell-surface-strong);
+  padding: 14px 16px;
+  box-shadow: 0 10px 24px -14px var(--shell-shadow);
+}
+
+.kb-ai-generating-card p {
+  margin: 4px 0 0;
+  color: var(--shell-muted);
+  font-size: 12px;
+}
+
+.kb-ai-generating-spinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 2px solid color-mix(in oklab, var(--shell-muted) 35%, transparent);
+  border-top-color: var(--shell-accent);
+  animation: kb-spin 0.8s linear infinite;
+}
+
+@keyframes kb-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.kb-ai-context-dialog {
+  position: fixed;
+  z-index: 1200;
+  width: min(420px, calc(100vw - 24px));
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--shell-surface-strong);
+  border: 1px solid var(--shell-border);
+  box-shadow: 0 12px 30px color-mix(in oklab, var(--shell-shadow) 32%, transparent);
+  display: grid;
+  gap: 10px;
+}
+
+.kb-ai-context-dialog__title {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.kb-ai-context-dialog__input {
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--shell-border);
+  background: var(--shell-surface);
+  color: var(--shell-text);
+}
+
+.kb-ai-context-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .kb-version-card {
