@@ -1,4 +1,5 @@
 DROP TABLE IF EXISTS knowledge_article_chunks;
+DROP TABLE IF EXISTS kb_ai_operation_log;
 DROP TABLE IF EXISTS knowledge_article_versions;
 DROP TABLE IF EXISTS knowledge_articles;
 DROP TABLE IF EXISTS ai_conversation_message;
@@ -101,8 +102,8 @@ CREATE TABLE IF NOT EXISTS knowledge_article_versions (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   article_id BIGINT NOT NULL COMMENT '文章 ID',
   version_no INT NOT NULL COMMENT '版本号',
-  snapshot LONGTEXT NOT NULL COMMENT '版本快照',
-  source VARCHAR(20) NOT NULL DEFAULT 'manual' COMMENT 'manual, ai',
+  snapshot LONGTEXT NOT NULL COMMENT '文章保存成功后的完整快照，用于回滚与历史查看',
+  source VARCHAR(20) NOT NULL DEFAULT 'manual' COMMENT '版本来源：manual / autosave / ai / rollback',
   created_by BIGINT NOT NULL COMMENT '创建人',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   UNIQUE KEY uk_article_version (article_id, version_no),
@@ -120,6 +121,37 @@ CREATE TABLE IF NOT EXISTS knowledge_article_chunks (
   UNIQUE KEY uk_knowledge_article_chunks_article_chunk (article_id, chunk_index),
   UNIQUE KEY uk_knowledge_article_chunks_embedding_id (embedding_id),
   KEY idx_knowledge_article_chunks_article_id (article_id)
+);
+
+CREATE TABLE IF NOT EXISTS knowledge_article_operation_log (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  user_id BIGINT NOT NULL COMMENT '操作用户 ID',
+  article_id BIGINT NOT NULL COMMENT '文章 ID',
+  conversation_id BIGINT DEFAULT NULL COMMENT '会话 ID（仅 AI 场景）',
+  request_id VARCHAR(64) DEFAULT NULL COMMENT '请求标识（仅 AI 场景）',
+  operation_type VARCHAR(30) NOT NULL COMMENT '操作类型（AI_APPLY / AI_GENERATE / AI_CANCEL / AI_RETRY / UNDO / REDO）',
+  change_mode VARCHAR(20) NOT NULL DEFAULT 'SNAPSHOT' COMMENT '变更记录模式（SNAPSHOT / DELTA）',
+  intent VARCHAR(50) DEFAULT NULL COMMENT 'AI 意图类型（polish / summary / rewrite 等）',
+  entry_point VARCHAR(50) DEFAULT NULL COMMENT 'AI 入口（selection/context-menu/toolbar/editor）',
+  input_text LONGTEXT COMMENT 'AI 输入文本',
+  selected_text LONGTEXT COMMENT '选中文本（AI 场景）',
+  output_text LONGTEXT COMMENT 'AI 输出文本',
+  result_action VARCHAR(30) DEFAULT NULL COMMENT '回填动作（replace / insertAfter / appendBlock / insertMermaid / previewOnly）',
+  before_snapshot LONGTEXT COMMENT '变更前快照（推荐存局部片段，必要时可存整文）',
+  after_snapshot LONGTEXT COMMENT '变更后快照（推荐存局部片段，必要时可存整文）',
+  delta_json LONGTEXT COMMENT '增量变更（JSON Patch/自定义 diff，DELTA 模式时使用）',
+  ref_operation_id BIGINT DEFAULT NULL COMMENT '关联操作 ID（UNDO/REDO 指向原操作）',
+  status VARCHAR(20) NOT NULL COMMENT '状态（SUCCESS / FAILED / STOPPED）',
+  error_message VARCHAR(500) DEFAULT NULL COMMENT '失败原因',
+  latency_ms INT DEFAULT NULL COMMENT '处理耗时（毫秒）',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  KEY idx_kb_ai_operation_log_user_id (user_id),
+  KEY idx_kb_ai_operation_log_article_id (article_id),
+  KEY idx_kb_ai_operation_log_conversation_id (conversation_id),
+  KEY idx_kb_ai_operation_log_request_id (request_id),
+  KEY idx_kb_ai_operation_log_operation_type (operation_type),
+  KEY idx_kb_ai_operation_log_ref_operation_id (ref_operation_id),
+  KEY idx_kb_ai_operation_log_created_at (created_at)
 );
 
 -- 测试数据 (Test Data)
@@ -160,6 +192,11 @@ INSERT INTO knowledge_article_versions (id, article_id, version_no, snapshot, so
 (20001, 10001, 1, '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"初始版本内容"}]}]}', 'manual', 1),
 (20002, 10002, 1, '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Redis Stack 方案初稿"}]}]}', 'manual', 1),
 (20003, 10003, 1, '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"团队周报模板初稿"}]}]}', 'manual', 2);
+
+-- 说明：
+-- 1. knowledge_article_versions 记录所有“保存成功”的稳定版本，自动保存 / 手动保存 / AI 落库 / 回滚保存都应生成版本。
+-- 2. knowledge_article_operation_log 仅记录 AI 相关操作，普通手动编辑不入库该表。
+-- 3. 前端负责撤销 / 重做栈与每分钟自动保存检测，后端仅在收到保存请求且内容发生变化时生成新版本。
 
 INSERT INTO knowledge_article_chunks (id, article_id, chunk_index, chunk_text, chunk_summary, embedding_id) VALUES
 (30001, 10001, 1, '{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"初始版本内容"}]}]}', '初始版本内容', '10001-1-demo'),

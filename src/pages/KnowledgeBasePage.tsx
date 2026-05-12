@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { SimpleEditor } from '@/components/tiptap-templates/simple/simple-editor';
 import {
@@ -25,6 +25,10 @@ function safeParseContent(content) {
   }
 }
 
+function normalizeArticleId(value) {
+  return value == null ? null : String(value);
+}
+
 export default function KnowledgeBasePage() {
   const navigate = useNavigate();
   const { articleId } = useParams();
@@ -38,6 +42,11 @@ export default function KnowledgeBasePage() {
   const [message, setMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [newArticleTitle, setNewArticleTitle] = useState('新知识文章');
+  const [draftContent, setDraftContent] = useState(EMPTY_DOC);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [isSwitchingArticle, setIsSwitchingArticle] = useState(false);
+  const autosaveTimerRef = useRef(null);
+  const savingPromiseRef = useRef(null);
   const filteredArticles = useMemo(() => {
     const q = searchText.trim().toLowerCase();
     if (!q) return articles;
@@ -54,7 +63,7 @@ export default function KnowledgeBasePage() {
     }
     const list = response.data?.data || [];
     setArticles(list);
-    setActiveArticleId((current) => articleId || current || list[0]?.articleId || null);
+    setActiveArticleId((current) => normalizeArticleId(articleId) || current || normalizeArticleId(list[0]?.articleId) || null);
     setIsLoading(false);
   }
 
@@ -65,7 +74,10 @@ export default function KnowledgeBasePage() {
       setErrorMessage(response.data?.message || '加载文章详情失败');
       return;
     }
-    setArticleDetail(response.data?.data || null);
+    const detail = response.data?.data || null;
+    setArticleDetail(detail);
+    setDraftContent(detail?.content || EMPTY_DOC);
+    setHasUnsavedChanges(false);
     const versionResponse = await fetchKnowledgeArticleVersions(articleId);
     if (versionResponse.ok) {
       setVersions(versionResponse.data?.data || []);
@@ -74,7 +86,7 @@ export default function KnowledgeBasePage() {
 
   useEffect(() => {
     void loadArticles();
-  }, [articleId]);
+  }, []);
 
   useEffect(() => {
     if (!activeArticleId) return;
@@ -85,12 +97,30 @@ export default function KnowledgeBasePage() {
   }, [activeArticleId, articleId, navigate]);
 
   useEffect(() => {
+    return () => {
+      if (autosaveTimerRef.current) {
+        clearInterval(autosaveTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (!articleId) {
-      setActiveArticleId((current) => current || null);
+      setActiveArticleId((current) => normalizeArticleId(current) || null);
       return;
     }
-    setActiveArticleId((current) => (current === articleId ? current : articleId));
+    setActiveArticleId((current) => (normalizeArticleId(current) === normalizeArticleId(articleId) ? current : normalizeArticleId(articleId)));
   }, [articleId]);
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (hasUnsavedChanges && articleDetail?.articleId && !savingPromiseRef.current) {
+        void saveArticle(draftContent, 'autosave');
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedChanges, draftContent, articleDetail?.articleId]);
 
   async function handleCreateArticle() {
     setMessage('');
@@ -105,30 +135,55 @@ export default function KnowledgeBasePage() {
       return;
     }
     setMessage('文章已创建');
-    await loadArticles();
     const createdArticleId = response.data.data.articleId;
-    setActiveArticleId(createdArticleId);
+    const createdArticle = {
+      articleId: createdArticleId,
+      title: response.data.data.title,
+      summary: '请填写摘要',
+      updatedAt: new Date().toISOString(),
+      status: 0,
+    };
+    setArticles((current) => [createdArticle, ...current]);
+    setActiveArticleId(normalizeArticleId(createdArticleId));
     navigate(`/knowledge-base/${createdArticleId}`, { replace: true });
   }
 
-  async function handleSaveArticle(content) {
-    if (!articleDetail?.articleId) return;
+  async function saveArticle(content, saveSource) {
+    if (!articleDetail?.articleId || isSaving || savingPromiseRef.current) return;
     setIsSaving(true);
-    const response = await updateKnowledgeArticle(articleDetail.articleId, {
+    const currentArticleId = articleDetail.articleId;
+    const savePromise = updateKnowledgeArticle(currentArticleId, {
       title: articleDetail.title,
       summary: articleDetail.summary,
       content,
-      saveSource: 'manual',
+      saveSource,
     });
+    savingPromiseRef.current = savePromise;
+    const response = await savePromise;
+    savingPromiseRef.current = null;
     if (!response.ok) {
       setErrorMessage(response.data?.message || '保存失败');
       setIsSaving(false);
       return;
     }
-    setMessage('已保存');
+    const changed = Boolean(response.data?.data?.changed);
+    setMessage(changed ? (saveSource === 'autosave' ? '已自动保存' : '已保存') : '内容未变化');
+    setHasUnsavedChanges(false);
     setIsSaving(false);
-    await loadArticles();
-    await loadArticle(articleDetail.articleId);
+    setArticles((current) =>
+      current.map((item) =>
+        item.articleId === currentArticleId
+          ? { ...item, title: articleDetail.title, summary: articleDetail.summary, updatedAt: new Date().toISOString() }
+          : item,
+      ),
+    );
+    if (articleDetail?.articleId === currentArticleId) {
+      await loadArticle(currentArticleId);
+    }
+  }
+
+  async function handleManualSave() {
+    await saveArticle(draftContent, 'manual');
   }
 
   async function handleDeleteArticle(articleId) {
@@ -138,8 +193,19 @@ export default function KnowledgeBasePage() {
       return;
     }
     setMessage('文章已删除');
-    await loadArticles();
-    setActiveArticleId((current) => (current === articleId ? articles[0]?.articleId || null : current));
+    setArticles((current) => current.filter((item) => item.articleId !== articleId));
+    setActiveArticleId((current) => (normalizeArticleId(current) === normalizeArticleId(articleId) ? null : current));
+  }
+
+  async function switchArticle(nextArticleId) {
+    if (!nextArticleId || nextArticleId === activeArticleId || isSwitchingArticle) return;
+    setIsSwitchingArticle(true);
+    if (hasUnsavedChanges) {
+      await saveArticle(draftContent, 'manual');
+    }
+    setActiveArticleId(normalizeArticleId(nextArticleId));
+    navigate(`/knowledge-base/${nextArticleId}`);
+    setIsSwitchingArticle(false);
   }
 
   async function handleRollback(versionNo) {
@@ -150,9 +216,30 @@ export default function KnowledgeBasePage() {
       return;
     }
     setMessage(`已回滚到版本 ${versionNo}`);
-    await loadArticles();
+    setArticles((current) =>
+      current.map((item) =>
+        item.articleId === articleDetail.articleId
+          ? { ...item, title: articleDetail.title, summary: articleDetail.summary, updatedAt: new Date().toISOString() }
+          : item,
+      ),
+    );
     await loadArticle(articleDetail.articleId);
   }
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    if (autosaveTimerRef.current) {
+      clearInterval(autosaveTimerRef.current);
+    }
+    autosaveTimerRef.current = window.setInterval(() => {
+      void saveArticle(draftContent, 'autosave');
+    }, 60_000);
+    return () => {
+      if (autosaveTimerRef.current) {
+        clearInterval(autosaveTimerRef.current);
+      }
+    };
+  }, [hasUnsavedChanges, draftContent, articleDetail?.articleId]);
 
   const initialContent = useMemo(() => safeParseContent(articleDetail?.content), [articleDetail?.content]);
 
@@ -192,10 +279,9 @@ export default function KnowledgeBasePage() {
               <button
                 key={article.articleId}
                 type="button"
-                className={`kb-article-card ${activeArticleId === article.articleId ? 'is-active' : ''}`}
+                className={`kb-article-card ${normalizeArticleId(activeArticleId) === normalizeArticleId(article.articleId) ? 'is-active' : ''}`}
                 onClick={() => {
-                  setActiveArticleId(article.articleId);
-                  navigate(`/knowledge-base/${article.articleId}`);
+                  void switchArticle(article.articleId);
                 }}
               >
                 <div className="kb-article-card__top">
@@ -215,13 +301,16 @@ export default function KnowledgeBasePage() {
               <h3>{articleDetail?.title || '请选择一篇文章'}</h3>
             </div>
             <div className="kb-editor-panel__actions">
-              <button type="button" className="secondary-button" onClick={() => handleSaveArticle(initialContent)} disabled={isSaving || !articleDetail}>保存</button>
+              <button type="button" className="secondary-button" onClick={handleManualSave} disabled={isSaving || !articleDetail || !hasUnsavedChanges}>保存</button>
               <button type="button" className="secondary-button" onClick={() => articleDetail && handleDeleteArticle(articleDetail.articleId)} disabled={!articleDetail}>删除</button>
             </div>
           </div>
 
           <div className="kb-editor-workbench">
-            <SimpleEditor initialContent={initialContent} onContentChange={handleSaveArticle} />
+            <SimpleEditor initialContent={initialContent} onContentChange={(nextContent) => {
+              setDraftContent(nextContent);
+              setHasUnsavedChanges(true);
+            }} />
           </div>
 
           <section className="kb-section">

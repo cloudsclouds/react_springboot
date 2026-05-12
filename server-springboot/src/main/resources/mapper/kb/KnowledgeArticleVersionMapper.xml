@@ -24,6 +24,12 @@
     ORDER BY version_no DESC, id DESC
   </select>
 
+  <select id="selectMaxVersionNoByArticleId" resultType="java.lang.Integer">
+    SELECT COALESCE(MAX(version_no), 0)
+    FROM knowledge_article_versions
+    WHERE article_id = #{articleId}
+  </select>
+
   <select id="selectByArticleIdAndVersionNo" resultMap="KnowledgeArticleVersionResultMap">
     SELECT id, article_id, version_no, snapshot, source, created_by, created_at
     FROM knowledge_article_versions

@@ -75,22 +75,22 @@ public class KnowledgeArticleServiceImpl implements KnowledgeArticleService {
 
     Integer versionNo = getLatestVersionNo(articleId);
     if (changed) {
-      KnowledgeArticleVersion version = new KnowledgeArticleVersion();
-      version.setArticleId(articleId);
-      version.setVersionNo(versionNo + 1);
-      version.setSnapshot(article.getContent());
-      version.setSource(request.getSaveSource() == null ? "manual" : request.getSaveSource());
-      version.setCreatedBy(userId);
-      version.setCreatedAt(LocalDateTime.now());
-      versionMapper.insert(version);
-      versionNo = version.getVersionNo();
-
       article.setTitle(newTitle);
       article.setSummary(newSummary);
       article.setContent(newContent);
       article.setUpdatedAt(LocalDateTime.now());
       articleMapper.update(article);
       chunkService.ingestArticle(articleId, userId);
+
+      KnowledgeArticleVersion version = new KnowledgeArticleVersion();
+      version.setArticleId(articleId);
+      version.setVersionNo(versionNo + 1);
+      version.setSnapshot(newContent);
+      version.setSource(normalizeSaveSource(request.getSaveSource()));
+      version.setCreatedBy(userId);
+      version.setCreatedAt(LocalDateTime.now());
+      versionMapper.insert(version);
+      versionNo = version.getVersionNo();
     }
 
     Map<String, Object> data = new HashMap<>();
@@ -145,10 +145,8 @@ public class KnowledgeArticleServiceImpl implements KnowledgeArticleService {
   }
 
   private Integer getLatestVersionNo(Long articleId) {
-    return versionMapper.selectByArticleId(articleId).stream()
-        .map(KnowledgeArticleVersion::getVersionNo)
-        .max(Integer::compareTo)
-        .orElse(0);
+    Integer maxVersionNo = versionMapper.selectMaxVersionNoByArticleId(articleId);
+    return maxVersionNo == null ? 0 : maxVersionNo;
   }
 
   private boolean hasChanges(KnowledgeArticle article, String newTitle, String newSummary, String newContent) {
@@ -162,6 +160,16 @@ public class KnowledgeArticleServiceImpl implements KnowledgeArticleService {
       return right == null;
     }
     return left.equals(right);
+  }
+
+  private String normalizeSaveSource(String saveSource) {
+    if (saveSource == null || saveSource.isBlank()) {
+      return "manual";
+    }
+    if ("manual".equals(saveSource) || "autosave".equals(saveSource) || "ai".equals(saveSource) || "rollback".equals(saveSource)) {
+      return saveSource;
+    }
+    return "manual";
   }
 
   private String stringifyContent(JsonNode content) {

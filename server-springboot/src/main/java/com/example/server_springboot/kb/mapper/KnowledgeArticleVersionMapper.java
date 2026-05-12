@@ -11,5 +11,7 @@ public interface KnowledgeArticleVersionMapper {
 
   List<KnowledgeArticleVersion> selectByArticleId(@Param("articleId") Long articleId);
 
+  Integer selectMaxVersionNoByArticleId(@Param("articleId") Long articleId);
+
   KnowledgeArticleVersion selectByArticleIdAndVersionNo(@Param("articleId") Long articleId, @Param("versionNo") Integer versionNo);
 }
