@@ -2,6 +2,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import type { JSONContent } from "@tiptap/react"
 import { EditorContent, EditorContext, useEditor } from "@tiptap/react"
 
 // --- Tiptap Core Extensions ---
@@ -160,10 +161,12 @@ const MobileToolbarContent = ({
   </>
 )
 
-export function SimpleEditor({ initialContent = content, onContentChange, onEditorReady = () => {}, readOnly = false, highlightText = '', highlightToken = '' }) {
+export function SimpleEditor({ initialContent = content, onContentChange, onEditorReady = () => {}, readOnly = false, highlightText = '', highlightToken = '', aiReplacementText = '', aiReplaceTrigger = 0 }) {
   const isMobile = useIsBreakpoint()
   const { height } = useWindowSize()
   const [mobileView, setMobileView] = useState("main")
+  const [lastAiSnapshot, setLastAiSnapshot] = useState<JSONContent | null>(null)
+  const [showUndoAi, setShowUndoAi] = useState(false)
   const toolbarRef = useRef(null)
 
   const editor = useEditor({
@@ -370,8 +373,45 @@ export function SimpleEditor({ initialContent = content, onContentChange, onEdit
     }
   }, [isMobile, mobileView])
 
+  useEffect(() => {
+    if (!editor || readOnly || !aiReplacementText || !aiReplaceTrigger) {
+      return
+    }
+
+    const { from, to, empty } = editor.state.selection
+    if (empty) {
+      return
+    }
+
+    setLastAiSnapshot(editor.getJSON() as JSONContent)
+    editor.chain().focus().setHighlight({ color: '#fff2a8' }).insertContentAt({ from, to }, aiReplacementText).unsetHighlight().run()
+    setShowUndoAi(true)
+
+    const timer = window.setTimeout(() => {
+      setShowUndoAi(false)
+    }, 10000)
+
+    return () => {
+      window.clearTimeout(timer)
+    }
+  }, [editor, readOnly, aiReplacementText, aiReplaceTrigger])
+
+  const handleUndoAiChange = () => {
+    if (!editor || !lastAiSnapshot) {
+      return
+    }
+
+    editor.commands.setContent(lastAiSnapshot, false)
+    setShowUndoAi(false)
+  }
+
   return (
     <div className={`simple-editor-wrapper ${readOnly ? 'is-readonly' : ''}`}>
+      {showUndoAi ? (
+        <div className="ai-undo-floating">
+          <Button variant="ghost" onClick={handleUndoAiChange}>撤销AI改动</Button>
+        </div>
+      ) : null}
       <EditorContext.Provider value={{ editor }}>
         {!readOnly ? (
           <Toolbar

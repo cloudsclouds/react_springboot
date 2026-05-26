@@ -32,7 +32,7 @@ async function handleResponse<TResponse>(response: Response): Promise<ApiResult<
     console.warn('Unauthorized (401). Please login again.');
   }
   
-  let data;
+  let data: unknown;
   try {
     data = await response.json();
   } catch (e) {
@@ -55,11 +55,16 @@ export async function getJson<TResponse>(path: string): Promise<ApiResult<TRespo
   return handleResponse<TResponse>(response);
 }
 
-export async function postJson<TResponse>(path: string, payload: unknown): Promise<ApiResult<TResponse>> {
+export async function postJson<TResponse>(
+  path: string,
+  payload: unknown,
+  options?: { signal?: AbortSignal },
+): Promise<ApiResult<TResponse>> {
   const response = await fetch(`${JAVA_API_BASE_URL}${path}`, {
     method: 'POST',
     headers: getAuthHeaders(),
     body: JSON.stringify(payload),
+    signal: options?.signal,
   });
   return handleResponse<TResponse>(response);
 }

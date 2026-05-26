@@ -45,6 +45,19 @@
   height: 100%;
   overflow: hidden;
   overscroll-behavior: auto;
+  position: relative;
+}
+
+.ai-undo-floating {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  z-index: 20;
+  background: color-mix(in srgb, var(--tt-bg-color) 88%, #ffffff 12%);
+  border: 1px solid rgba(120, 120, 120, 0.25);
+  border-radius: 9999px;
+  padding: 0.125rem 0.375rem;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
 }
 
 .simple-editor-content {
