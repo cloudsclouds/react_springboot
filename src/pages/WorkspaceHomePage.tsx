@@ -1,4 +1,6 @@
 // @ts-nocheck
+import { VoiceWorkbench } from '../components/Audio/VoiceWorkbench';
+
 const OVERVIEW_CARDS = [
   { title: '文档区', value: '12', note: '最近编辑 4 篇，继续从工作台进入编辑流。' },
   { title: 'AI 会话', value: '08', note: '保留单独聊天页，避免和编辑器工具抢层级。' },
@@ -7,7 +9,7 @@ const OVERVIEW_CARDS = [
 
 export default function WorkspaceHomePage() {
   return (
-    <section className="page-shell">
+    <main className="page-shell">
       <header className="page-hero">
         <div>
           <span className="panel-kicker">Dashboard</span>
@@ -25,7 +27,9 @@ export default function WorkspaceHomePage() {
             </article>
           ))}
         </section>
+
+        <VoiceWorkbench />
       </div>
-    </section>
+    </main>
   );
 }

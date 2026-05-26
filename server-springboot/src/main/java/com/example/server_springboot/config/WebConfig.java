@@ -40,7 +40,10 @@ public class WebConfig implements WebMvcConfigurer {
   public void addInterceptors(InterceptorRegistry registry) {
     registry.addInterceptor(jwtInterceptor)
         .addPathPatterns("/api/**")
-        .excludePathPatterns("/api/auth/**", "/api/public/**");
+        .excludePathPatterns(
+            "/api/auth/**",
+            "/api/public/**",
+            "/api/voice/recordings/open-source-demo/blob");
   }
 
   /**
@@ -58,6 +61,7 @@ public class WebConfig implements WebMvcConfigurer {
       .addMapping("/api/**")
       .allowedOrigins(corsAllowedOrigins.split(","))
       .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
-      .allowedHeaders("*");
+      .allowedHeaders("*")
+      .allowCredentials(true);
   }
 }
