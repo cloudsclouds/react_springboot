@@ -44,6 +44,7 @@
     "react-router-dom": "^6.28.2",
     "react-scripts": "5.0.1",
     "web-vitals": "^2.1.4",
+    "wavesurfer.js": "^7.10.1",
     "y-protocols": "^1.0.7",
     "y-websocket": "^3.0.0",
     "yjs": "^13.6.30"

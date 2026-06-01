@@ -18,12 +18,17 @@ export function VoiceWorkbench() {
   const [status, setStatus] = useState<RecorderStatus>('idle');
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = useState('');
+  const [isAudioLoading, setIsAudioLoading] = useState(false);
+  const [audioLoadErrorText, setAudioLoadErrorText] = useState('');
   const [audioId, setAudioId] = useState('workspace-latest-audio');
   const [transcript, setTranscript] = useState('');
   const [segments, setSegments] = useState<TranscriptSegment[]>([]);
   const [errorText, setErrorText] = useState('');
   const [playbackRate, setPlaybackRate] = useState(1);
   const [initialProgress, setInitialProgress] = useState(0);
+
+  const audioUrlCacheRef = useRef<Map<string, string>>(new Map());
+  const loadAbortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     setPlaybackRate(readRate());
@@ -36,10 +41,12 @@ export function VoiceWorkbench() {
 
   useEffect(() => {
     return () => {
-      if (audioUrl) URL.revokeObjectURL(audioUrl);
+      loadAbortControllerRef.current?.abort();
+      audioUrlCacheRef.current.forEach((url) => URL.revokeObjectURL(url));
+      audioUrlCacheRef.current.clear();
       stopTracks();
     };
-  }, [audioUrl]);
+  }, []);
 
   const stopTracks = () => {
     if (mediaStreamRef.current) {
@@ -90,13 +97,13 @@ export function VoiceWorkbench() {
           });
 
           const uploadInfo = await completeChunkUpload(sessionIdRef.current);
-          if (uploadInfo.audioId) setAudioId(uploadInfo.audioId);
+          if (uploadInfo.audioId) {
+            setAudioId(uploadInfo.audioId);
+          }
 
           const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
           setAudioBlob(blob);
-
-          if (audioUrl) URL.revokeObjectURL(audioUrl);
-          setAudioUrl(URL.createObjectURL(blob));
+          setAudioUrl('');
 
           setStatus('transcribing');
           const result = await transcribeAudioByAudioId(uploadInfo.audioId || audioId);
@@ -147,24 +154,6 @@ export function VoiceWorkbench() {
 
       <div className="voice-workbench__hero">
         <VoiceRecorderPanel status={status} onStart={startRecording} onStop={stopRecording} />
-        <button
-          type="button"
-          className="ghost-link voice-workbench__load-demo"
-          onClick={async () => {
-            try {
-              const blob = await fetchAudioBlob('open-source-demo');
-              setAudioBlob(blob);
-              if (audioUrl) URL.revokeObjectURL(audioUrl);
-              setAudioUrl(URL.createObjectURL(blob));
-              setAudioId('open-source-demo');
-              setErrorText('');
-            } catch (error) {
-              setErrorText('加载开源演示音频失败，请检查网络或稍后重试。');
-            }
-          }}
-        >
-          加载开源演示音频（Blob）
-        </button>
       </div>
 
       {audioBlob ? (
@@ -174,6 +163,44 @@ export function VoiceWorkbench() {
       <div className="voice-workbench__content">
         <VoicePlayerPanel
           audioUrl={audioUrl}
+          isLoading={isAudioLoading}
+          loadErrorText={audioLoadErrorText}
+          onRequestLoad={async () => {
+            if (isAudioLoading || !audioId) return;
+
+            const cachedUrl = audioUrlCacheRef.current.get(audioId);
+            if (cachedUrl) {
+              setAudioUrl(cachedUrl);
+              setAudioLoadErrorText('');
+              return;
+            }
+
+            try {
+              setIsAudioLoading(true);
+              setAudioLoadErrorText('');
+
+              loadAbortControllerRef.current?.abort();
+              const controller = new AbortController();
+              loadAbortControllerRef.current = controller;
+
+              const blob = await fetchAudioBlob(audioId, controller.signal);
+              if (controller.signal.aborted) return;
+
+              setAudioBlob(blob);
+              const nextUrl = URL.createObjectURL(blob);
+              audioUrlCacheRef.current.set(audioId, nextUrl);
+              setAudioUrl(nextUrl);
+            } catch (error) {
+              const isAbort = error instanceof DOMException
+                ? error.name === 'AbortError'
+                : (error as { code?: string })?.code === 'ERR_CANCELED';
+              if (!isAbort) {
+                setAudioLoadErrorText('加载音频失败，请重试。');
+              }
+            } finally {
+              setIsAudioLoading(false);
+            }
+          }}
           playbackRate={playbackRate}
           onPlaybackRateChange={setPlaybackRate}
           onTimeUpdate={saveProgress}

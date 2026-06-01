@@ -90,7 +90,7 @@ export async function completeChunkUpload(sessionId: string): Promise<UploadedAu
   return unwrapped;
 }
 
-export async function fetchAudioBlob(audioId: string): Promise<Blob> {
+export async function fetchAudioBlob(audioId: string, signal?: AbortSignal): Promise<Blob> {
   const path = audioId === 'open-source-demo'
     ? '/voice/recordings/open-source-demo/blob'
     : `/voice/recordings/${audioId}/blob`;
@@ -98,6 +98,7 @@ export async function fetchAudioBlob(audioId: string): Promise<Blob> {
   const client = audioId === 'open-source-demo' ? demoAudioRequest : request;
   const response = await client.get<Blob>(path, {
     responseType: 'blob',
+    signal,
   });
   return response.data;
 }
