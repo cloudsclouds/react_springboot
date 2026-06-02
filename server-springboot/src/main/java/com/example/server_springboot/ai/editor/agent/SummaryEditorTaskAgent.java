@@ -8,6 +8,7 @@ import com.alibaba.dashscope.common.ResultCallback;
 import com.alibaba.dashscope.common.Role;
 import com.example.server_springboot.ai.config.AiProperties;
 import com.example.server_springboot.ai.editor.dto.EditorAiExecuteRequest;
+import com.example.server_springboot.ai.editor.dto.EditorMemoryContext;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -37,16 +38,12 @@ public class SummaryEditorTaskAgent implements EditorTaskAgent {
 
   @Override
   public String generate(EditorAiExecuteRequest request) {
-    String prompt = "你是总结智能体。请提炼核心信息，输出结构化总结。\n"
-        + "要求：\n"
-        + "1. 可以使用 Markdown 输出，优先使用列表组织要点。\n"
-        + "2. 优先依据 chatInput 指令；简洁、准确、不杜撰。\n"
-        + "3. 只输出总结正文，不要解释过程。\n\n"
-        + "chatInput:\n" + safe(request.getChatInput()) + "\n\n"
-        + "selectedText:\n" + safe(request.getSelectedText()) + "\n\n"
-        + "surroundingContext:\n" + safe(request.getSurroundingContext()) + "\n\n"
-        + "请输出总结：";
-    return callModel(prompt);
+    return callModel(buildPrompt(request));
+  }
+
+  @Override
+  public String generate(EditorAiExecuteRequest request, EditorMemoryContext memoryContext) {
+    return callModel(buildPrompt(request, memoryContext));
   }
 
   @Override
@@ -54,6 +51,44 @@ public class SummaryEditorTaskAgent implements EditorTaskAgent {
     return new java.util.HashMap<>(Map.of(
         "action", request.getAction() == null ? "" : request.getAction(),
         "intent", intent()));
+  }
+
+  private String buildPrompt(EditorAiExecuteRequest request) {
+    return buildPrompt(request, null);
+  }
+
+  private String buildPrompt(EditorAiExecuteRequest request, EditorMemoryContext memoryContext) {
+    StringBuilder builder = new StringBuilder();
+    builder.append("你是总结智能体。请提炼核心信息，输出结构化总结。\n")
+        .append("要求：\n")
+        .append("1. 可以使用 Markdown 输出，优先使用列表组织要点。\n")
+        .append("2. 优先依据 chatInput 指令；简洁、准确、不杜撰。\n")
+        .append("3. 只输出总结正文，不要解释过程。\n\n");
+    appendMemory(builder, memoryContext);
+    builder.append("chatInput:\n").append(safe(request.getChatInput())).append("\n\n")
+        .append("selectedText:\n").append(safe(request.getSelectedText())).append("\n\n")
+        .append("surroundingContext:\n").append(safe(request.getSurroundingContext())).append("\n\n")
+        .append("请输出总结：");
+    return builder.toString();
+  }
+
+  private void appendMemory(StringBuilder builder, EditorMemoryContext memoryContext) {
+    if (memoryContext == null) {
+      return;
+    }
+    if (StringUtils.hasText(memoryContext.getRecentWindow())) {
+      builder.append("L1 最近原文:\n").append(memoryContext.getRecentWindow()).append("\n\n");
+    }
+    if (StringUtils.hasText(memoryContext.getRollingSummary())) {
+      builder.append("L2 滚动摘要:\n").append(memoryContext.getRollingSummary()).append("\n\n");
+    }
+    if (memoryContext.getLongTermMemories() != null && !memoryContext.getLongTermMemories().isEmpty()) {
+      builder.append("L3 长期记忆:\n");
+      memoryContext.getLongTermMemories().forEach(memory -> builder.append("- ")
+          .append(StringUtils.hasText(memory.getSummary()) ? memory.getSummary() : memory.getContent())
+          .append(" (confidence=").append(memory.getConfidence() == null ? "" : memory.getConfidence()).append(")\n"));
+      builder.append("\n");
+    }
   }
 
   private String callModel(String prompt) {

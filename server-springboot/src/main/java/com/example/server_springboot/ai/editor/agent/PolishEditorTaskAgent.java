@@ -8,6 +8,7 @@ import com.alibaba.dashscope.common.ResultCallback;
 import com.alibaba.dashscope.common.Role;
 import com.example.server_springboot.ai.config.AiProperties;
 import com.example.server_springboot.ai.editor.dto.EditorAiExecuteRequest;
+import com.example.server_springboot.ai.editor.dto.EditorMemoryContext;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -45,8 +46,12 @@ public class PolishEditorTaskAgent implements EditorTaskAgent {
 
   @Override
   public String generate(EditorAiExecuteRequest request) {
-    String prompt = buildPrompt(request);
-    return callModel(prompt, request);
+    return callModel(buildPrompt(request), request);
+  }
+
+  @Override
+  public String generate(EditorAiExecuteRequest request, EditorMemoryContext memoryContext) {
+    return callModel(buildPrompt(request, memoryContext), request);
   }
 
   @Override
@@ -61,22 +66,48 @@ public class PolishEditorTaskAgent implements EditorTaskAgent {
   }
 
   private String buildPrompt(EditorAiExecuteRequest request) {
+    return buildPrompt(request, null);
+  }
+
+  private String buildPrompt(EditorAiExecuteRequest request, EditorMemoryContext memoryContext) {
     String selectedText = safeText(request.getSelectedText());
     String surroundingContext = safeText(request.getSurroundingContext());
     String chatInput = safeText(request.getChatInput());
-    return "你是编辑器中的润色智能体，只负责润色文本，不要改动原意。\n"
-        + "输出要求：\n"
-        + "1. 可以使用 Markdown 输出（可保留段落/列表等结构）。\n"
-        + "2. 只输出润色后的正文，不要输出解释、前缀、JSON。\n"
-        + "2. 保持原文事实不变，优化措辞、语气、结构和可读性。\n"
-        + "3. 默认保持和原文一致的语言风格；如果原文是中文，就输出中文。\n"
-        + "4. 如果输入过短，请尽量保持简洁自然。\n"
-        + "5. 优先使用 chatInput 里的用户需求描述；如果 chatInput 没有明确要求，再结合 selectedText 与 surroundingContext。\n"
-        + "6. 如果 selectedText 存在，优先润色 selectedText；否则参考 surroundingContext。\n\n"
-        + "chatInput:\n" + chatInput + "\n\n"
-        + "selectedText:\n" + selectedText + "\n\n"
-        + "surroundingContext:\n" + surroundingContext + "\n\n"
-        + "请直接输出润色后的结果：";
+    StringBuilder builder = new StringBuilder();
+    builder.append("你是编辑器中的润色智能体，只负责润色文本，不要改动原意。\n")
+        .append("输出要求：\n")
+        .append("1. 可以使用 Markdown 输出（可保留段落/列表等结构）。\n")
+        .append("2. 只输出润色后的正文，不要输出解释、前缀、JSON。\n")
+        .append("2. 保持原文事实不变，优化措辞、语气、结构和可读性。\n")
+        .append("3. 默认保持和原文一致的语言风格；如果原文是中文，就输出中文。\n")
+        .append("4. 如果输入过短，请尽量保持简洁自然。\n")
+        .append("5. 优先使用 chatInput 里的用户需求描述；如果 chatInput 没有明确要求，再结合 selectedText 与 surroundingContext。\n")
+        .append("6. 如果 selectedText 存在，优先润色 selectedText；否则参考 surroundingContext。\n\n");
+    appendMemory(builder, memoryContext);
+    builder.append("chatInput:\n").append(chatInput).append("\n\n")
+        .append("selectedText:\n").append(selectedText).append("\n\n")
+        .append("surroundingContext:\n").append(surroundingContext).append("\n\n")
+        .append("请直接输出润色后的结果：");
+    return builder.toString();
+  }
+
+  private void appendMemory(StringBuilder builder, EditorMemoryContext memoryContext) {
+    if (memoryContext == null) {
+      return;
+    }
+    if (StringUtils.hasText(memoryContext.getRecentWindow())) {
+      builder.append("L1 最近原文:\n").append(memoryContext.getRecentWindow()).append("\n\n");
+    }
+    if (StringUtils.hasText(memoryContext.getRollingSummary())) {
+      builder.append("L2 滚动摘要:\n").append(memoryContext.getRollingSummary()).append("\n\n");
+    }
+    if (memoryContext.getLongTermMemories() != null && !memoryContext.getLongTermMemories().isEmpty()) {
+      builder.append("L3 长期记忆:\n");
+      memoryContext.getLongTermMemories().forEach(memory -> builder.append("- ")
+          .append(StringUtils.hasText(memory.getSummary()) ? memory.getSummary() : memory.getContent())
+          .append(" (confidence=").append(memory.getConfidence() == null ? "" : memory.getConfidence()).append(")\n"));
+      builder.append("\n");
+    }
   }
 
   private String callModel(String prompt, EditorAiExecuteRequest request) {

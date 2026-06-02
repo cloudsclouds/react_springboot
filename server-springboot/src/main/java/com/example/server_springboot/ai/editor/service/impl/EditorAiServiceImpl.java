@@ -5,10 +5,12 @@ import com.example.server_springboot.ai.editor.dto.EditorAiExecuteRequest;
 import com.example.server_springboot.ai.editor.dto.EditorAiExecuteResponse;
 import com.example.server_springboot.ai.editor.dto.EditorAiStreamRequest;
 import com.example.server_springboot.ai.editor.dto.EditorAiStopRequest;
+import com.example.server_springboot.ai.editor.dto.EditorMemoryContext;
 import com.example.server_springboot.ai.editor.entity.KnowledgeArticleOperationLog;
 import com.example.server_springboot.ai.editor.mapper.KnowledgeArticleOperationLogMapper;
 import com.example.server_springboot.ai.editor.router.EditorAgentRouter;
 import com.example.server_springboot.ai.editor.service.EditorAiService;
+import com.example.server_springboot.ai.editor.service.EditorMemoryService;
 import com.example.server_springboot.dto.ApiResponse;
 import com.example.server_springboot.kb.mapper.KnowledgeArticleMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -29,39 +31,41 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @Service
 @RequiredArgsConstructor
 public class EditorAiServiceImpl implements EditorAiService {
-  // 停止请求前缀
   private static final String STOP_KEY_PREFIX = "kb:ai:stop:";
-  // 活跃请求映射
   private static final ConcurrentHashMap<String, String> ACTIVE_REQUESTS = new ConcurrentHashMap<>();
 
-  private final EditorAgentRouter router; // 编辑器任务智能体路由
-  private final KnowledgeArticleMapper articleMapper; // 知识库文章映射
-  private final KnowledgeArticleOperationLogMapper logMapper; // 知识库文章操作日志映射
-  private final StringRedisTemplate redisTemplate; // Redis 模板
-  private final ObjectMapper objectMapper; // 对象映射器
+  private final EditorAgentRouter router;
+  private final KnowledgeArticleMapper articleMapper;
+  private final KnowledgeArticleOperationLogMapper logMapper;
+  private final StringRedisTemplate redisTemplate;
+  private final ObjectMapper objectMapper;
+  private final EditorMemoryService editorMemoryService;
 
   /**
-   * 执行编辑器 AI
-   * @param request 请求
-   * @param userId 用户 ID
-   * @return 响应
+   * 同步执行编辑器 AI。
+   *
+   * <p>先根据三层记忆构建编辑器上下文，再把上下文传给具体 agent，
+   * 让续写 / 润色 / 翻译 / 总结都能继承当前会话的历史状态和长期偏好。
    */
   @Override
   public ApiResponse<EditorAiExecuteResponse> execute(EditorAiExecuteRequest request, Long userId) {
     verifyArticle(request.getArticleId(), userId);
-    // 路由编辑器任务智能体
     EditorTaskAgent agent = router.route(request);
-    // 如果编辑器任务智能体为空，则抛出异常
     if (agent == null) {
       throw new IllegalArgumentException("不支持的编辑器 AI action: " + request.getAction());
     }
-    // 生成输出
-    String output = agent.generate(request);
-    // 保存日志
+    EditorMemoryContext memoryContext = editorMemoryService.buildContext(userId, request);
+    String output = agent.generate(request, memoryContext);
     saveLog(userId, request, agent, output, "SUCCESS", null, 0, request.getRequestId());
     return ApiResponse.success("执行成功", new EditorAiExecuteResponse(agent.intent(), agent.outputType(), output, agent.resultAction(), agent.meta(request)));
   }
 
+  /**
+   * 流式执行编辑器 AI。
+   *
+   * <p>与同步接口保持一致，区别只是把输出按事件推给前端；
+   * 记忆上下文依然先构建再传入具体 agent，保证多轮编辑任务可以继承上下文。
+   */
   @Override
   public SseEmitter stream(EditorAiStreamRequest request, Long userId) {
     verifyArticle(request.getArticleId(), userId);
@@ -82,9 +86,10 @@ public class EditorAiServiceImpl implements EditorAiService {
         executeRequest.setSurroundingContext(request.getSurroundingContext());
         executeRequest.setChatInput(request.getChatInput());
         EditorTaskAgent agent = router.route(executeRequest);
+        EditorMemoryContext memoryContext = editorMemoryService.buildContext(userId, executeRequest);
 
         emitter.send(SseEmitter.event().name("message-start").data(json(Map.of("type", "message-start", "requestId", requestId, "articleId", request.getArticleId()))));
-        String output = agent.generate(executeRequest);
+        String output = agent.generate(executeRequest, memoryContext);
         if (isStopped(request.getArticleId(), requestId)) {
           saveLog(userId, executeRequest, agent, output, "STOPPED", null, 0, requestId);
           emitter.send(SseEmitter.event().name("message-stop").data(json(Map.of("type", "message-stop", "requestId", requestId, "articleId", request.getArticleId()))));
@@ -123,15 +128,8 @@ public class EditorAiServiceImpl implements EditorAiService {
     return ApiResponse.success("查询成功", List.of());
   }
 
-  /**
-   * 验证文章
-   * @param articleId 文章 ID
-   * @param userId 用户 ID
-   */
   private void verifyArticle(Long articleId, Long userId) {
-    // 查询文章
     var article = articleMapper.selectById(articleId);
-    // 如果文章不存在或用户无权访问，则抛出异常
     if (article == null || !userId.equals(article.getUserId())) {
       throw new IllegalArgumentException("文章不存在或无权访问");
     }
@@ -157,11 +155,6 @@ public class EditorAiServiceImpl implements EditorAiService {
     logMapper.insert(log);
   }
 
-  /**
-   * 构建输入文本
-   * @param request 请求
-   * @return 输入文本
-   */
   private String buildInputText(EditorAiExecuteRequest request) {
     try {
       return objectMapper.writeValueAsString(Map.of(
@@ -174,51 +167,23 @@ public class EditorAiServiceImpl implements EditorAiService {
     }
   }
 
-  /**
-   * 是否停止
-   * @param articleId 文章 ID
-   * @param requestId 请求 ID
-   * @return 是否停止
-   */
   private boolean isStopped(Long articleId, String requestId) {
     return Boolean.TRUE.equals(redisTemplate.hasKey(stopKey(articleId, requestId)))
         || !requestId.equals(ACTIVE_REQUESTS.get(requestKey(articleId, requestId)));
   }
 
-  /**
-   * 清理请求
-   * @param articleId 文章 ID
-   * @param requestId 请求 ID
-   */
   private void cleanup(Long articleId, String requestId) {
     ACTIVE_REQUESTS.remove(requestKey(articleId, requestId));
   }
 
-  /**
-   * 请求键
-   * @param articleId 文章 ID
-   * @param requestId 请求 ID
-   * @return 请求键
-   */
   private String requestKey(Long articleId, String requestId) {
     return articleId + ":" + requestId;
   }
 
-  /**
-   * 停止键
-   * @param articleId 文章 ID
-   * @param requestId 请求 ID
-   * @return 停止键
-   */
   private String stopKey(Long articleId, String requestId) {
     return STOP_KEY_PREFIX + articleId + ":" + requestId;
   }
 
-  /**
-   * JSON 转换
-   * @param payload 负载
-   * @return JSON 字符串
-   */
   private String json(Map<String, Object> payload) {
     try {
       return objectMapper.writeValueAsString(payload);

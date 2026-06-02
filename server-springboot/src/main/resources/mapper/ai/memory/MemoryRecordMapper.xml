@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.server_springboot.ai.memory.mapper.MemoryRecordMapper">
+
+  <resultMap id="MemoryRecordResultMap" type="com.example.server_springboot.ai.memory.entity.MemoryRecord">
+    <id column="id" property="id"/>
+    <result column="user_id" property="userId"/>
+    <result column="conversation_id" property="conversationId"/>
+    <result column="level" property="level"/>
+    <result column="scope" property="scope"/>
+    <result column="content" property="content"/>
+    <result column="summary" property="summary"/>
+    <result column="facts_json" property="factsJson"/>
+    <result column="source_type" property="sourceType"/>
+    <result column="source_turn" property="sourceTurn"/>
+    <result column="confidence" property="confidence"/>
+    <result column="hit_count" property="hitCount"/>
+    <result column="version" property="version"/>
+    <result column="status" property="status"/>
+    <result column="ttl_at" property="ttlAt"/>
+    <result column="created_at" property="createdAt"/>
+    <result column="updated_at" property="updatedAt"/>
+  </resultMap>
+
+  <insert id="insert" parameterType="com.example.server_springboot.ai.memory.entity.MemoryRecord" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO ai_memory_record (
+      user_id, conversation_id, level, scope, content, summary, facts_json,
+      source_type, source_turn, confidence, hit_count, version, status, ttl_at,
+      created_at, updated_at
+    ) VALUES (
+      #{userId}, #{conversationId}, #{level}, #{scope}, #{content}, #{summary}, #{factsJson},
+      #{sourceType}, #{sourceTurn}, #{confidence}, #{hitCount}, #{version}, #{status}, #{ttlAt},
+      #{createdAt}, #{updatedAt}
+    )
+  </insert>
+
+  <update id="update" parameterType="com.example.server_springboot.ai.memory.entity.MemoryRecord">
+    UPDATE ai_memory_record
+    SET content = #{content},
+        summary = #{summary},
+        facts_json = #{factsJson},
+        source_type = #{sourceType},
+        source_turn = #{sourceTurn},
+        confidence = #{confidence},
+        hit_count = #{hitCount},
+        version = #{version},
+        status = #{status},
+        ttl_at = #{ttlAt},
+        updated_at = #{updatedAt}
+    WHERE id = #{id}
+  </update>
+
+  <select id="selectByUserId" resultMap="MemoryRecordResultMap">
+    SELECT id, user_id, conversation_id, level, scope, content, summary, facts_json,
+           source_type, source_turn, confidence, hit_count, version, status, ttl_at,
+           created_at, updated_at
+    FROM ai_memory_record
+    WHERE user_id = #{userId}
+      AND (ttl_at IS NULL OR ttl_at > NOW())
+      AND status = 'ACTIVE'
+    ORDER BY updated_at DESC, id DESC
+  </select>
+
+  <select id="selectRecentByConversationId" resultMap="MemoryRecordResultMap">
+    SELECT id, user_id, conversation_id, level, scope, content, summary, facts_json,
+           source_type, source_turn, confidence, hit_count, version, status, ttl_at,
+           created_at, updated_at
+    FROM ai_memory_record
+    WHERE conversation_id = #{conversationId}
+      AND level IN ('L1', 'L2')
+      AND (ttl_at IS NULL OR ttl_at > NOW())
+      AND status = 'ACTIVE'
+    ORDER BY id DESC
+    LIMIT #{limit}
+  </select>
+
+  <select id="searchByUserId" resultMap="MemoryRecordResultMap">
+    SELECT id, user_id, conversation_id, level, scope, content, summary, facts_json,
+           source_type, source_turn, confidence, hit_count, version, status, ttl_at,
+           created_at, updated_at
+    FROM ai_memory_record
+    WHERE user_id = #{userId}
+      AND level = 'L3'
+      AND status = 'ACTIVE'
+      AND (ttl_at IS NULL OR ttl_at > NOW())
+      AND (
+        content LIKE CONCAT('%', #{keyword}, '%')
+        OR summary LIKE CONCAT('%', #{keyword}, '%')
+        OR facts_json LIKE CONCAT('%', #{keyword}, '%')
+      )
+    ORDER BY confidence DESC, updated_at DESC, hit_count DESC
+    LIMIT #{limit}
+  </select>
+
+  <select id="selectByUserIdAndContent" resultMap="MemoryRecordResultMap">
+    SELECT id, user_id, conversation_id, level, scope, content, summary, facts_json,
+           source_type, source_turn, confidence, hit_count, version, status, ttl_at,
+           created_at, updated_at
+    FROM ai_memory_record
+    WHERE user_id = #{userId}
+      AND content = #{content}
+      AND level = 'L3'
+      AND status = 'ACTIVE'
+    ORDER BY id DESC
+    LIMIT 1
+  </select>
+
+</mapper>

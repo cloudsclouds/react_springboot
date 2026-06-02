@@ -18,6 +18,9 @@ import com.example.server_springboot.ai.entity.AiConversation;
 import com.example.server_springboot.ai.entity.AiConversationMessage;
 import com.example.server_springboot.ai.mapper.AiConversationMapper;
 import com.example.server_springboot.ai.mapper.AiConversationMessageMapper;
+import com.example.server_springboot.ai.memory.dto.MemoryContext;
+import com.example.server_springboot.ai.memory.service.MemoryContextBuilder;
+import com.example.server_springboot.ai.memory.service.MemoryOrchestratorService;
 import com.example.server_springboot.ai.service.AiChatService;
 import com.example.server_springboot.kb.dto.KnowledgeChunkSearchResponse;
 import com.example.server_springboot.kb.service.KnowledgeArticleChunkService;
@@ -61,12 +64,20 @@ public class AiChatServiceImpl implements AiChatService {
   private final ObjectMapper objectMapper;
   private final KnowledgeArticleService knowledgeArticleService;
   private final KnowledgeArticleChunkService knowledgeArticleChunkService;
+  private final MemoryContextBuilder memoryContextBuilder;
+  private final MemoryOrchestratorService memoryOrchestratorService;
 
   /**
    * 聊天
    * @param request 请求
    * @param userId 用户 ID
    * @return 响应
+   */
+  /**
+   * 聊天入口。
+   *
+   * <p>这里先读取三层记忆上下文，再把最近消息、长期偏好和检索引用组装到 prompt 里，
+   * 最后在模型生成完成后把本轮对话回写到 L1 / L2 / L3。
    */
   @Override
   public ChatResponse chat(ChatRequest request, Long userId) {
@@ -85,17 +96,27 @@ public class AiChatServiceImpl implements AiChatService {
     // 更新会话使用 RAG
     Boolean useRag = request.getUseRag() != null ? request.getUseRag() : conversation.getUseRag();
     aiConversationMapper.updateUseRagById(conversation.getId(), userId, useRag);
+    // 读取记忆上下文
+    MemoryContext memoryContext = memoryContextBuilder.build(userId, conversation.getId(), request.getMessage());
     // 构建引用
     List<ChatCitationDto> citations = buildCitations(useRag, request.getMessage(), request.getArticleId(), request.getTopK(), userId);
-    String prompt = buildPrompt(request.getMessage(), citations);
+    String prompt = buildPrompt(request.getMessage(), citations, memoryContext);
     // 构建消息
     List<Message> messages = buildMessages(history, prompt);
     // 生成答案
     String answer = generateOnce(messages);
+    // 写回记忆闭环
+    memoryOrchestratorService.ingestTurn(userId, conversation.getId(), request.getRequestId(), request.getMessage(), answer, conversation.getSummary());
     // 返回响应
     return new ChatResponse(answer, citations, !citations.isEmpty());
   }
 
+  /**
+   * 流式聊天入口。
+   *
+   * <p>与普通聊天一致，只是把生成过程拆成 delta 事件推给前端，
+   * 最终在完成时统一回写记忆，保持 L1 / L2 / L3 的一致性。
+   */
   @Override
   public SseEmitter streamChat(ChatStreamRequest request, Long userId) {
     SseEmitter emitter = new SseEmitter(0L);
@@ -116,8 +137,9 @@ public class AiChatServiceImpl implements AiChatService {
 
         Boolean useRag = request.getUseRag() != null ? request.getUseRag() : conversation.getUseRag();
         aiConversationMapper.updateUseRagById(conversation.getId(), userId, useRag);
+        MemoryContext memoryContext = memoryContextBuilder.build(userId, conversation.getId(), request.getMessage());
         List<ChatCitationDto> citations = buildCitations(useRag, request.getMessage(), request.getArticleId(), request.getTopK(), userId);
-        String prompt = buildPrompt(request.getMessage(), citations);
+        String prompt = buildPrompt(request.getMessage(), citations, memoryContext);
         List<Message> messages = buildMessages(history, prompt);
 
         emitter.send(SseEmitter.event().name("rag-start").data(jsonEvent("rag-start", "", conversationId, requestId, null, null, List.of())));
@@ -174,6 +196,7 @@ public class AiChatServiceImpl implements AiChatService {
               assistantMessage.setCitations(serializeCitations(citations));
               assistantMessage.setUpdatedAt(LocalDateTime.now());
               aiConversationMessageMapper.updateById(assistantMessage);
+              memoryOrchestratorService.ingestTurn(userId, conversation.getId(), requestId, request.getMessage(), assistantContent.toString(), conversation.getSummary());
               String eventType = stopped.get() ? "message-stop" : "message-end";
               String status = stopped.get() ? "STOPPED" : "COMPLETED";
               emitter.send(SseEmitter.event().name(eventType)
@@ -340,24 +363,41 @@ public class AiChatServiceImpl implements AiChatService {
    * @param citations 引用列表
    * @return 提示词
    */
-  private String buildPrompt(String question, List<ChatCitationDto> citations) {
-    if (citations == null || citations.isEmpty()) {
-      return "";
-    }
+  private String buildPrompt(String question, List<ChatCitationDto> citations, MemoryContext memoryContext) {
     StringBuilder builder = new StringBuilder();
-    builder.append("你需要优先根据以下检索到的知识库引用回答问题。\n");
-    builder.append("引用编号格式必须严格使用 [c1]、[c2] 这种形式，不要输出其他格式的引用编号。\n");
-    builder.append("如果回答中的某个结论或事实来自引用内容，必须在对应句子末尾追加相应引用编号，例如 [c1] 或 [c1][c3]。\n");
-    builder.append("如果没有引用支撑，不要编造结论，直接说明无法从知识库中确认。\n");
-    builder.append("下面是可用引用：\n");
-    for (ChatCitationDto citation : citations) {
-      builder.append("[").append(citation.getCitationId()).append("] ")
-          .append(citation.getArticleTitle())
-          .append(" - ")
-          .append(citation.getChunkText())
-          .append("\n");
+    builder.append("你是一个具备三层记忆的 AI 助手。\n");
+    builder.append("请优先遵守记忆上下文中的约束和偏好，避免与长期记忆冲突。\n");
+    if (memoryContext != null) {
+      if (StringUtils.hasText(memoryContext.getRecentWindow())) {
+        builder.append("L1 最近原文：\n").append(memoryContext.getRecentWindow()).append("\n");
+      }
+      if (StringUtils.hasText(memoryContext.getRollingSummary())) {
+        builder.append("L2 滚动摘要：\n").append(memoryContext.getRollingSummary()).append("\n");
+      }
+      if (memoryContext.getLongTermMemories() != null && !memoryContext.getLongTermMemories().isEmpty()) {
+        builder.append("L3 长期记忆：\n");
+        for (var memory : memoryContext.getLongTermMemories()) {
+          builder.append("- ")
+              .append(StringUtils.hasText(memory.getSummary()) ? memory.getSummary() : memory.getContent())
+              .append(" (confidence=").append(memory.getConfidence() == null ? "" : memory.getConfidence())
+              .append(")\n");
+        }
+      }
     }
-    builder.append("请只基于以上引用回答问题。问题：").append(question);
+    if (citations != null && !citations.isEmpty()) {
+      builder.append("知识库引用：\n");
+      builder.append("引用编号格式必须严格使用 [c1]、[c2] 这种形式，不要输出其他格式的引用编号。\n");
+      builder.append("如果回答中的某个结论或事实来自引用内容，必须在对应句子末尾追加相应引用编号，例如 [c1] 或 [c1][c3]。\n");
+      builder.append("如果没有引用支撑，不要编造结论，直接说明无法从知识库中确认。\n");
+      for (ChatCitationDto citation : citations) {
+        builder.append("[").append(citation.getCitationId()).append("] ")
+            .append(citation.getArticleTitle())
+            .append(" - ")
+            .append(citation.getChunkText())
+            .append("\n");
+      }
+    }
+    builder.append("请回答问题：").append(question);
     return builder.toString();
   }
 

@@ -1,6 +1,7 @@
 package com.example.server_springboot.ai.editor.agent;
 
 import com.example.server_springboot.ai.editor.dto.EditorAiExecuteRequest;
+import com.example.server_springboot.ai.editor.dto.EditorMemoryContext;
 import java.util.Map;
 
 /**
@@ -21,6 +22,10 @@ public interface EditorTaskAgent {
 
   // 生成
   String generate(EditorAiExecuteRequest request);
+
+  default String generate(EditorAiExecuteRequest request, EditorMemoryContext memoryContext) {
+    return generate(request);
+  }
 
   // 元数据
   default Map<String, Object> meta(EditorAiExecuteRequest request) {

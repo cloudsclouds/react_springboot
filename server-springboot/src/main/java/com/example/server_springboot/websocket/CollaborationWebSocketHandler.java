@@ -131,57 +131,69 @@ public class CollaborationWebSocketHandler extends BinaryWebSocketHandler {
   }
 
   @Override
-  protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
+  protected void handleTextMessage(WebSocketSession session, TextMessage message) {
     // 文本消息承载的是协同协议控制信息，当前实现里主要用 JSON 来表达。
-    Long docId = (Long) session.getAttributes().get("docId");
-    Long userId = (Long) session.getAttributes().get("userId");
-    Map<String, Object> incoming = objectMapper.readValue(message.getPayload(), Map.class);
-    String type = String.valueOf(incoming.getOrDefault("type", ""));
+    try {
+      Long docId = (Long) session.getAttributes().get("docId");
+      Long userId = (Long) session.getAttributes().get("userId");
+      Map<String, Object> incoming = objectMapper.readValue(message.getPayload(), Map.class);
+      String type = String.valueOf(incoming.getOrDefault("type", ""));
 
-    if ("ping".equalsIgnoreCase(type)) {
-      // 心跳消息用于检测连接是否仍然可用，同时帮助前端和后端做保活。
-      sendText(session, Map.of("type", "pong", "docId", docId, "payload", Map.of("ts", System.currentTimeMillis())));
-      return;
+      if ("ping".equalsIgnoreCase(type)) {
+        // 心跳消息用于检测连接是否仍然可用，同时帮助前端和后端做保活。
+        sendText(session, Map.of("type", "pong", "docId", docId, "payload", Map.of("ts", System.currentTimeMillis())));
+        return;
+      }
+
+      if ("sync".equalsIgnoreCase(type)) {
+        // sync 用于首次进入房间或重连时补齐快照、状态向量等协作上下文。
+        handleSync(session, docId, userId, incoming);
+        return;
+      }
+
+      if ("awareness".equalsIgnoreCase(type)) {
+        // awareness 保存的是在线状态，不进入正文持久化，只用于协作者可视化展示。
+        handleAwareness(docId, userId, incoming, session);
+        return;
+      }
+
+      if ("save".equalsIgnoreCase(type)) {
+        // save 允许前端主动触发一次快照持久化。
+        handleSave(session, docId, incoming);
+        return;
+      }
+
+      if ("rollback".equalsIgnoreCase(type)) {
+        // rollback 本质上也是一个广播型控制消息，通知房间里的其他客户端同步处理。
+        broadcastText(docId, enrichIncoming(incoming, userId), session);
+        sendOnlineCount(docId, session);
+        broadcastOnlineCount(docId, session);
+        return;
+      }
+
+      if ("update".equalsIgnoreCase(type)) {
+        // JSON 形式的 update 仍然兼容支持，但正文协作推荐走 binary update。
+        handleJsonUpdate(session, docId, userId, incoming);
+        return;
+      }
+
+      // 未知消息类型直接回一个 error，避免前端误以为请求被正常处理。
+      sendText(session, Map.of(
+          "type", "error",
+          "docId", docId,
+          "payload", Map.of("code", "UNSUPPORTED_TYPE", "message", "不支持的消息类型")
+      ));
+    } catch (Exception e) {
+      try {
+        Long docId = (Long) session.getAttributes().get("docId");
+        sendText(session, Map.of(
+            "type", "error",
+            "docId", docId,
+            "payload", Map.of("code", "TEXT_MESSAGE_ERROR", "message", e.getMessage())
+        ));
+      } catch (Exception ignored) {
+      }
     }
-
-    if ("sync".equalsIgnoreCase(type)) {
-      // sync 用于首次进入房间或重连时补齐快照、状态向量等协作上下文。
-      handleSync(session, docId, userId, incoming);
-      return;
-    }
-
-    if ("awareness".equalsIgnoreCase(type)) {
-      // awareness 保存的是在线状态，不进入正文持久化，只用于协作者可视化展示。
-      handleAwareness(docId, userId, incoming, session);
-      return;
-    }
-
-    if ("save".equalsIgnoreCase(type)) {
-      // save 允许前端主动触发一次快照持久化。
-      handleSave(session, docId, incoming);
-      return;
-    }
-
-    if ("rollback".equalsIgnoreCase(type)) {
-      // rollback 本质上也是一个广播型控制消息，通知房间里的其他客户端同步处理。
-      broadcastText(docId, enrichIncoming(incoming, userId), session);
-      sendOnlineCount(docId, session);
-      broadcastOnlineCount(docId, session);
-      return;
-    }
-
-    if ("update".equalsIgnoreCase(type)) {
-      // JSON 形式的 update 仍然兼容支持，但正文协作推荐走 binary update。
-      handleJsonUpdate(session, docId, userId, incoming);
-      return;
-    }
-
-    // 未知消息类型直接回一个 error，避免前端误以为请求被正常处理。
-    sendText(session, Map.of(
-        "type", "error",
-        "docId", docId,
-        "payload", Map.of("code", "UNSUPPORTED_TYPE", "message", "不支持的消息类型")
-    ));
   }
 
   @Override
