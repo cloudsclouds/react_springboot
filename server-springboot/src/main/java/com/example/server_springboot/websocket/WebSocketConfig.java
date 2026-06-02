@@ -10,6 +10,8 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry
 @EnableWebSocket
 public class WebSocketConfig implements WebSocketConfigurer {
 
+  // 协作编辑的 WebSocket 处理器会在这里注册到 `/ws/collaboration` 路由上。
+  // 它不会被业务代码手动 new 出来调用，而是由 Spring WebSocket 在运行时自动分发消息。
   private final CollaborationWebSocketHandler collaborationWebSocketHandler;
   private final CollaborationHandshakeInterceptor collaborationHandshakeInterceptor;
   private final String corsAllowedOrigins;

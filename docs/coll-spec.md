@@ -2,347 +2,125 @@
 
 ## 1. 目标
 
-本方案用于支撑当前项目的文档管理、多人协同编辑、权限控制及版本快照功能，并保证前端页面、React 接口封装与 Spring Boot 后端的实现保持一致。当前阶段已完成手动保存版本的协作能力，下一阶段将切换为基于 WebSocket 的实时协同。
+本方案用于支撑项目的文档管理、多人协同编辑、权限控制与版本快照功能，并保证前端页面、React 接口封装与 Spring Boot 后端实现保持一致。
 
-## 2. 技术方案
+当前项目已经具备**基础 WebSocket 协同外壳**，下一阶段的目标是把协同编辑升级为**基于 Yjs 的增量协同**，补齐 update 同步、awareness 在线状态、离线重连与持久化日志链路。
 
-### 2.1 总体架构
+---
 
-- 前端：React + React Router + Yjs + WebSocket Client
-- 后端：Spring Boot + MyBatis + Redis + WebSocket
-- 数据库：MySQL
-- 缓存：Redis
-- 通信方式：HTTP JSON（业务接口）+ WebSocket（协同数据）
+## 2. 当前实现
 
-### 2.2 实施阶段
+### 2.1 已完成能力
 
-#### 阶段一：手动保存版本协作
+#### 前端
 
-1. 用户编辑文档内容。
-2. 前端在用户点击保存时，将当前内容提交给 Spring Boot。
-3. Spring Boot 持久化当前文档快照，并写入版本历史。
-4. 用户可基于版本记录进行查看和回滚。
+- 文档编辑页已接入 Tiptap 编辑器。
+- 已有文档列表、文档详情、成员管理、版本快照、回滚等页面能力。
+- 协同编辑入口已在前端侧预留，支持通过 WebSocket 连接服务端。
+- 当前编辑器组件已具备多人协作的 UI 承载能力，包括在线人数展示、协作者头像区域、光标/状态展示入口。
 
-#### 阶段二：WebSocket 实时协作
+#### 服务端
 
-1. 前端建立 WebSocket 连接并完成 Token 鉴权。
-2. 服务端根据文档 ID、用户身份与成员角色确认访问权限。
-3. 服务端向客户端下发最新文档状态。
-4. 各客户端通过 WebSocket 实时同步编辑增量。
-5. 服务端定期或在关键事件后将合并结果落库。
+- 已提供 WebSocket 协议入口：`/ws/collaboration`。
+- 已实现握手阶段鉴权：通过 `token + docId` 校验用户身份和文档访问参数。
+- 已实现房间级 session 管理、在线用户统计、在线用户 ID 列表维护。
+- 已实现连接后下发文档快照、在线人数广播、心跳响应、保存入口与断开清理。
 
-### 2.3 流程设计
+#### 数据层
 
-#### 创建文档流程
+- 已有文档、协作者、版本快照、分享链接等基础表结构。
+- 已有文档持久化与版本历史能力。
 
-1. 用户在前端页面点击“新建文档”。
-2. 前端调用 Spring Boot 创建文档接口。
-3. Spring Boot 在 MySQL 中创建文档元数据（`documents` 表），并自动将创建者设为 Owner 写入 `document_members`。
-4. 返回文档 ID 后，前端跳转至文档编辑页。
+### 2.2 当前实现的边界
 
-#### 手动保存版本流程
+当前协同能力仍以**自定义 JSON 消息 + 快照保存**为主，尚未完全接入标准 Yjs 协议。因此当前系统更适合定义为：
 
-1. 用户编辑完成后点击“保存”。
-2. 前端将当前文档内容提交给 Spring Boot。
-3. Spring Boot 更新 `documents.latest_snapshot` 并写入 `document_versions`。
-4. 前端刷新保存状态并展示最新版本号。
+- 已实现：WebSocket 在线协作外壳
+- 正在补齐：Yjs 增量协同、awareness、重连补偿、增量持久化
+- 尚未完成：标准 CRDT update 同步闭环
 
-#### WebSocket 协同编辑流程
+---
 
-1. 前端获取到文档 ID 及认证 Token 后，连接至 Spring Boot 提供的 WebSocket 协同端点。
-2. Spring Boot WebSocket 服务在握手阶段校验 Token，并根据文档 ID、用户身份与成员角色检查编辑/阅读权限。
-3. 服务端从数据库加载该文档的最新 Yjs 状态数据并下发给客户端。
-4. 用户开始编辑，Yjs 通过 WebSocket 实时广播 changes 给同一 Room 下的其他连接用户。
-5. Spring Boot 协同服务通过 debounce 机制，将合并后的最新 Snapshot 定期回存入 MySQL。
+## 3. 待补齐能力
 
-#### 版本快照与回滚流程
+以下能力是本方案下一阶段的补齐重点。
 
-1. 用户手动或系统定期触发“保存快照”。
-2. Spring Boot 接口记录当前文档快照，存入 `document_versions` 表。
-3. 如需回滚，前端调用“回滚版本”接口。
-4. Spring Boot 提取指定版本的快照，覆盖当前 `documents` 中的最新状态，并通知在线协同会话刷新内容。
+### 3.1 Yjs 增量协同
 
-### 2.4 当前实现说明
+- 接入 `Y.Doc` 作为文档状态容器。
+- 使用 Yjs update 作为编辑增量的标准传输格式。
+- 在前端编辑器与共享文档之间建立绑定关系，避免手写复杂的操作转换。
+- 支持增量 update 的合并、去重与最终一致性收敛。
 
-- 鉴权依赖现有的 `users` 表。现有 `users` 表包含字段：`id`, `username`, `email`, `password`, `nickname`, `created_at`。
-- 文档创建时会写入 `owner_name`，并初始化一份结构化的 `latest_snapshot`，用于页面和测试环境直接预览正文内容。
-- 多人协同依赖 WebSocket 建立实时连接。文档的文本状态（State Vector）由 Yjs 进行 CRDT 合并。
-- 业务控制与协同状态同步均由 Spring Boot 提供，后端不再拆分 Node 协同服务。
+### 3.2 Awareness 在线状态
 
-### 2.5 数据存储
+- 独立同步在线用户的光标、选区、昵称、颜色与活跃状态。
+- awareness 状态不进入正文持久化，不污染文档内容。
+- 支持节流、过期清理与断线失活处理。
 
-#### 数据库表结构
+### 3.3 增量日志与快照
 
-**1. documents（文档表）**
+- 记录协同 update 增量日志，而不是只保存全文快照。
+- 定期将增量日志合并为最新 snapshot，降低恢复成本。
+- 支持版本回滚、重放与异常恢复。
 
-| 字段名 | 类型 | 说明 |
-| --- | --- | --- |
-| id | BIGINT | 主键 |
-| title | VARCHAR(200) | 文档标题 |
-| owner_id | BIGINT | 拥有者 ID（外键关联 users.id） |
-| owner_name | VARCHAR(100) | 拥有者名称 |
-| latest_snapshot | LONGTEXT | 最新 Yjs 快照数据 |
-| version | INT | 乐观锁/版本号 |
-| status | TINYINT | 状态（0-正常，1-回收站） |
-| created_at | DATETIME | 创建时间 |
-| updated_at | DATETIME | 更新时间 |
+### 3.4 异常与边界处理
 
-**2. document_members（协作者表）**
+- 网络抖动后的自动重连。
+- 断线期间的本地编辑缓存。
+- 重连后的状态补偿与缺失 update 补发。
+- 非法消息、超大消息、重复消息、空消息的校验与拦截。
+- 高并发房间下的广播顺序与消息压力控制。
 
-多人协作权限核心：
+---
 
-| 字段名 | 类型 | 说明 |
-| --- | --- | --- |
-| id | BIGINT | 主键 |
-| document_id | BIGINT | 文档 ID |
-| user_id | BIGINT | 用户 ID（外键关联 users.id） |
-| role | VARCHAR(20) | 角色（owner, editor, viewer, no_access） |
-| joined_at | DATETIME | 加入时间 |
+## 4. 协同协议
 
-**3. document_versions（文档版本快照表）**
+### 4.1 总体通信方式
 
-| 字段名 | 类型 | 说明 |
-| --- | --- | --- |
-| id | BIGINT | 主键 |
-| document_id | BIGINT | 文档 ID |
-| version_no | INT | 版本序号 |
-| snapshot | LONGTEXT | 快照数据 |
-| created_by | BIGINT | 创建人 ID（外键关联 users.id） |
-| created_at | DATETIME | 创建时间 |
+- 业务接口：HTTP JSON
+- 协同接口：WebSocket
+- 协同数据：Yjs update + awareness
 
-**4. share_links（分享链接表）**
+### 4.2 WebSocket 连接信息
 
-| 字段名 | 类型 | 说明 |
-| --- | --- | --- |
-| id | BIGINT | 主键 |
-| document_id | BIGINT | 文档 ID |
-| share_token | VARCHAR(128) | 分享 Token |
-| permission | VARCHAR(20) | 授予权限（viewer, editor） |
-| expire_time | DATETIME | 过期时间 |
+- Base URL：`ws://localhost:8080/ws/collaboration`
+- 连接参数：
+  - `token`：用户鉴权凭证
+  - `docId`：文档 ID
 
-#### Redis Key 设计
+示例：
 
-- `collab:online:users:{docId}`：文档当前在线协作者列表。
-- `collab:lock:doc:{docId}`：文档特殊操作（如回滚、删除）时的分布式防并发锁。
-- `collab:session:{docId}`：文档实时协同会话元数据。
-- `collab:last-save:{docId}`：最近一次自动保存时间点。
-
-## 3. 接口约定
-
-### 3.1 通用约定
-
-- Base URL：`http://localhost:8080/api`
-- WebSocket Base：`ws://localhost:8080/ws/collaboration`
-- 请求方式：`POST` / `GET` / `PUT` / `DELETE`
-- 请求头：`Content-Type: application/json`
-- 鉴权信息：携带 Cookie / JWT Header / localStorage 中的 Token
-- 返回格式：统一返回 JSON 对象
-
-### 3.2 文档管理接口
-
-#### 3.2.1 创建文档
-
-- URL：`POST /api/documents`
-- 请求参数：
-
-```json
-{
-  "title": "我的新文档"
-}
+```text
+ws://localhost:8080/ws/collaboration?token=<TOKEN>&docId=<DOC_ID>
 ```
 
-- 返回参数：
+### 4.3 握手协议
+
+握手阶段需要完成：
+
+1. 解析 `token`。
+2. 解析 `docId`。
+3. 验证用户身份。
+4. 校验用户对文档是否具备访问或编辑权限。
+5. 将 `userId`、`docId` 写入会话上下文。
+
+### 4.4 消息类型
+
+协同消息建议统一采用如下结构：
 
 ```json
 {
-  "success": true,
-  "message": "创建成功",
-  "documentId": 1001
-}
-```
-
-#### 3.2.2 获取文档列表
-
-- URL：`GET /api/documents`
-- 功能：获取当前用户拥有或参与协作的文档列表
-- 返回参数：
-
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": 1001,
-      "title": "我的新文档",
-      "ownerId": 1,
-      "ownerName": "管理员",
-      "role": "owner",
-      "updatedAt": "2023-10-01T12:00:00Z"
-    }
-  ]
-}
-```
-
-#### 3.2.3 获取文档元数据
-
-- URL：`GET /api/documents/{id}`
-- 功能：获取文档的基础信息、作者名称、正文快照与权限
-- `latestSnapshot` 仅存储内容本体，并尽量保持为 Tiptap 可消费的结构，例如：
-
-```json
-{
-  "type": "doc",
-  "content": [
-    {
-      "type": "heading",
-      "attrs": { "level": 1 },
-      "content": [{ "type": "text", "text": "产品需求文档" }]
-    },
-    {
-      "type": "paragraph",
-      "content": [{ "type": "text", "text": "这是一个用于测试的产品需求文档快照。" }]
-    },
-    {
-      "type": "bulletList",
-      "content": [
-        {
-          "type": "listItem",
-          "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "支持标题编辑" }] }]
-        }
-      ]
-    }
-  ]
-}
-```
-
-- 返回参数：
-
-```json
-{
-  "success": true,
-  "data": {
-    "id": 1001,
-    "title": "我的新文档",
-    "ownerId": 1,
-    "ownerName": "管理员",
-    "latestSnapshot": "{\"state\":\"...\"}",
-    "role": "owner",
-    "updatedAt": "2023-10-01T12:00:00Z"
-  }
-}
-```
-
-#### 3.2.4 修改文档标题
-
-- URL：`PUT /api/documents/{id}`
-- 请求参数：
-
-```json
-{
-  "title": "重命名后的文档"
-}
-```
-
-#### 3.2.5 删除文档
-
-- URL：`DELETE /api/documents/{id}`
-- 功能：将文档移入回收站或彻底删除。仅 Owner 可操作。
-
-### 3.3 协作权限接口
-
-#### 3.3.1 邀请协作者 / 修改权限
-
-- URL：`POST /api/documents/{id}/members`
-- 功能：添加协作者或更新现有协作者角色
-- 请求参数：
-
-```json
-{
-  "userId": 2,
-  "role": "editor"
-}
-```
-
-#### 3.3.2 获取协作者列表
-
-- URL：`GET /api/documents/{id}/members`
-- 返回参数：
-
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "userId": 1,
-      "nickname": "Admin",
-      "role": "owner"
-    },
-    {
-      "userId": 2,
-      "nickname": "Paperdesk Team",
-      "role": "editor"
-    }
-  ]
-}
-```
-
-#### 3.3.3 移除协作者
-
-- URL：`DELETE /api/documents/{id}/members/{userId}`
-- 功能：移除某用户的协作权限
-
-### 3.4 版本快照接口
-
-#### 3.4.1 获取版本历史
-
-- URL：`GET /api/documents/{id}/versions`
-
-#### 3.4.2 手动保存当前版本
-
-- URL：`POST /api/documents/{id}/snapshot`
-- 功能：将当前文档内容保存为一个版本快照
-- 请求参数：
-
-```json
-{
-  "content": {
-    "type": "doc",
-    "content": []
-  }
-}
-```
-
-#### 3.4.3 回滚版本
-
-- URL：`POST /api/documents/{id}/rollback/{versionId}`
-- 功能：将文档状态回滚至指定版本
-
-### 3.5 WebSocket 协同接口
-
-#### 3.5.1 建立协同连接
-
-- URL：`ws://localhost:8080/ws/collaboration?token=<TOKEN>&docId=<DOC_ID>`
-- 鉴权：握手阶段校验 Token，并验证当前用户对文档的访问权限。
-- 连接建立后，服务端会下发文档最新状态及协同会话信息。
-
-#### 3.5.2 协同消息格式
-
-服务端与前端通过 WebSocket 传递 JSON 消息，建议统一使用如下结构：
-
-```json
-{
-  "type": "sync|awareness|save|rollback|error",
+  "type": "sync | update | awareness | ping | pong | save | rollback | error",
   "docId": 1001,
   "requestId": "uuid-optional",
   "payload": {}
 }
 ```
 
-#### 3.5.3 消息类型定义
+#### 4.4.1 `sync`
 
-##### sync
-
-用于同步文档的初始状态或增量状态。
+用于首次进入房间、重连后的状态同步、缺失状态补齐。
 
 ```json
 {
@@ -350,14 +128,33 @@
   "docId": 1001,
   "payload": {
     "snapshot": "...",
-    "stateVector": "..."
+    "stateVector": "...",
+    "version": 12
   }
 }
 ```
 
-##### awareness
+#### 4.4.2 `update`
 
-用于同步在线用户状态，例如光标、选区、正在输入标记。
+用于传输 Yjs 增量更新。
+
+```json
+{
+  "type": "update",
+  "docId": 1001,
+  "requestId": "req-001",
+  "payload": {
+    "update": "base64-or-binary-encoded-yjs-update",
+    "clientId": 2,
+    "origin": "local",
+    "seqNo": 18
+  }
+}
+```
+
+#### 4.4.3 `awareness`
+
+用于同步光标、选区、用户在线状态。
 
 ```json
 {
@@ -366,31 +163,46 @@
   "payload": {
     "userId": 2,
     "nickname": "Alice",
+    "color": "#8b5cf6",
     "cursor": {
       "from": 10,
       "to": 14
-    }
+    },
+    "active": true,
+    "lastSeenAt": 1716790000000
   }
 }
 ```
 
-##### save
+#### 4.4.4 `ping` / `pong`
 
-用于服务端或客户端触发保存快照。
+用于心跳保活、连接存活检测。
+
+```json
+{ "type": "ping", "docId": 1001, "payload": { "ts": 1716790000000 } }
+```
+
+```json
+{ "type": "pong", "docId": 1001, "payload": { "ts": 1716790000000 } }
+```
+
+#### 4.4.5 `save`
+
+用于触发快照持久化或手动保存。
 
 ```json
 {
   "type": "save",
   "docId": 1001,
   "payload": {
-    "reason": "manual|autosave|snapshot"
+    "reason": "manual | autosave | snapshot"
   }
 }
 ```
 
-##### rollback
+#### 4.4.6 `rollback`
 
-用于通知当前会话执行版本回滚并刷新状态。
+用于回滚到指定版本。
 
 ```json
 {
@@ -402,9 +214,9 @@
 }
 ```
 
-##### error
+#### 4.4.7 `error`
 
-用于返回权限不足、文档不存在、消息格式错误等异常信息。
+用于返回权限不足、文档不存在、消息格式错误等异常。
 
 ```json
 {
@@ -417,70 +229,183 @@
 }
 ```
 
-#### 3.5.4 WebSocket 事件流
+---
 
-##### 连接建立
+## 5. 协同流程
 
-1. 客户端发起 WebSocket 握手。
-2. 服务端校验 Token 与文档权限。
-3. 服务端返回首屏快照与在线状态。
+### 5.1 首次进入文档
 
-##### 编辑同步
+1. 前端先通过 HTTP 获取文档元数据和最新快照。
+2. 前端建立 WebSocket 连接并完成握手鉴权。
+3. 服务端验证用户权限后，将房间最新状态下发给客户端。
+4. 前端初始化 `Y.Doc` 或编辑器状态，并开始接收协同消息。
 
-1. 客户端编辑产生增量。
-2. 客户端将增量发送给服务端。
-3. 服务端合并增量并广播给其他在线用户。
-4. 服务端按节流策略持久化最新内容。
+### 5.2 实时编辑
 
-##### 心跳机制
+1. 用户在编辑器内输入内容。
+2. 前端将编辑动作转换为 Yjs transaction。
+3. Yjs 生成增量 update。
+4. 前端将 update 通过 WebSocket 发给服务端。
+5. 服务端广播给同房间其他客户端。
+6. 各客户端合并 update，最终收敛为一致状态。
 
-1. 客户端定期发送 `ping` 消息。
-2. 服务端回复 `pong`。
-3. 若多次未响应，则认为连接已断开并进行重连。
+### 5.3 在线状态同步
 
-##### 断线重连
+1. 用户移动光标或选区变化。
+2. 前端更新 awareness 状态。
+3. 服务端将 awareness 广播给同房间其他用户。
+4. 其他客户端渲染协作者光标与昵称。
 
-1. 客户端在断线后按退避策略重连。
-2. 重连成功后重新请求最新快照。
-3. 服务端根据版本号判断是否需要补发增量。
+### 5.4 保存与落库
 
-## 4. 前端与 Spring Boot 接入方式
+1. 服务端按时间或操作次数触发自动保存。
+2. 先将 update 增量写入日志。
+3. 再按周期合并为 snapshot 写入 `documents.latest_snapshot`。
+4. 必要时写入 `document_versions` 形成历史版本。
 
-### 4.1 接口封装
+### 5.5 断线重连
 
-前端目前通过 `src/api/document.ts` 等文件统一封装文档与权限相关的 REST API：
+1. 客户端检测到连接断开。
+2. 客户端执行指数退避重连。
+3. 重连成功后重新同步 state vector。
+4. 服务端补发缺失 update。
+5. 客户端恢复本地编辑状态与 awareness 状态。
 
-- `createDocument(payload)`
-- `fetchDocuments()`
-- `fetchDocumentDetail(id)`
-- `updateDocumentTitle(id, payload)`
-- `addMember(id, payload)`
-- `saveDocumentSnapshot(id, payload)`
-- `rollbackDocumentVersion(id, versionId)`
+---
 
-### 4.2 WebSocket 协同连接
+## 6. 表结构
 
-连接方式为 WebSocket：`ws://localhost:8080/ws/collaboration?token=<TOKEN>&docId=<DOC_ID>`
+### 6.1 `documents`（文档表）
 
-前端基于 Yjs 通过 WebSocket 与 Spring Boot 协同服务连接：
+| 字段名 | 类型 | 说明 |
+| --- | --- | --- |
+| id | BIGINT | 主键 |
+| title | VARCHAR(200) | 文档标题 |
+| owner_id | BIGINT | 拥有者 ID |
+| owner_name | VARCHAR(100) | 拥有者名称 |
+| latest_snapshot | LONGTEXT | 最新文档快照 |
+| version | INT | 乐观锁 / 版本号 |
+| status | TINYINT | 状态（0-正常，1-回收站） |
+| created_at | DATETIME | 创建时间 |
+| updated_at | DATETIME | 更新时间 |
 
-```javascript
-import * as Y from 'yjs'
+### 6.2 `document_members`（协作者表）
 
-const ydoc = new Y.Doc()
-const ws = new WebSocket('ws://localhost:8080/ws/collaboration?token=用户的认证凭证&docId=1001')
+| 字段名 | 类型 | 说明 |
+| --- | --- | --- |
+| id | BIGINT | 主键 |
+| document_id | BIGINT | 文档 ID |
+| user_id | BIGINT | 用户 ID |
+| role | VARCHAR(20) | 角色（owner/editor/viewer/no_access） |
+| joined_at | DATETIME | 加入时间 |
 
-ws.onopen = () => {
-  ws.send(JSON.stringify({ type: 'sync', docId: 1001, payload: {} }))
-}
-```
+### 6.3 `document_versions`（版本快照表）
 
-- Spring Boot 服务端接收到连接请求后，在握手和消息处理阶段完成权限校验、文档加载、状态广播与快照持久化。
-- 前端在收到 `sync` 消息后初始化编辑器内容，在收到 `awareness` 消息后渲染在线协作者状态。
+| 字段名 | 类型 | 说明 |
+| --- | --- | --- |
+| id | BIGINT | 主键 |
+| document_id | BIGINT | 文档 ID |
+| version_no | INT | 版本序号 |
+| snapshot | LONGTEXT | 文档快照 |
+| created_by | BIGINT | 创建人 ID |
+| created_at | DATETIME | 创建时间 |
 
-## 5. Spring Boot 实现建议
+### 6.4 `document_collab_updates`（协同增量日志表，建议新增）
 
-### 5.1 模块划分
+> 该表用于记录 Yjs update 增量，支撑重放、恢复、审计与快照合并。
+
+| 字段名 | 类型 | 说明 |
+| --- | --- | --- |
+| id | BIGINT | 主键 |
+| document_id | BIGINT | 文档 ID |
+| user_id | BIGINT | 操作用户 ID |
+| client_id | VARCHAR(64) | 客户端标识 |
+| request_id | VARCHAR(64) | 请求标识 |
+| seq_no | BIGINT | 房间内递增序号 |
+| update_payload | LONGBLOB / LONGTEXT | Yjs 增量数据 |
+| update_format | VARCHAR(20) | 数据格式（binary/base64/json） |
+| origin | VARCHAR(20) | 来源（local/remote/system） |
+| status | VARCHAR(20) | 状态（APPLIED/PENDING/FAILED） |
+| created_at | DATETIME | 创建时间 |
+
+### 6.5 `document_collab_snapshots`（协同快照表，建议新增）
+
+> 如果希望保留更细粒度的快照历史，建议独立快照表，而不是仅复用 `document_versions`。
+
+| 字段名 | 类型 | 说明 |
+| --- | --- | --- |
+| id | BIGINT | 主键 |
+| document_id | BIGINT | 文档 ID |
+| base_update_id | BIGINT | 对应的增量日志基线 |
+| snapshot | LONGTEXT | 合并后的快照 |
+| state_vector | LONGTEXT | 快照对应的状态向量 |
+| created_by | BIGINT | 创建人 ID |
+| created_at | DATETIME | 创建时间 |
+
+### 6.6 `share_links`（分享链接表）
+
+| 字段名 | 类型 | 说明 |
+| --- | --- | --- |
+| id | BIGINT | 主键 |
+| document_id | BIGINT | 文档 ID |
+| share_token | VARCHAR(128) | 分享 Token |
+| permission | VARCHAR(20) | 授予权限（viewer/editor） |
+| expire_time | DATETIME | 过期时间 |
+
+---
+
+## 7. Redis Key 设计
+
+- `collab:online:users:{docId}`：文档当前在线协作者列表。
+- `collab:session:{docId}`：文档实时协同会话元数据。
+- `collab:last-save:{docId}`：最近一次自动保存时间点。
+- `collab:lock:doc:{docId}`：文档回滚、删除、快照合并等操作的分布式锁。
+- `collab:cursor:{docId}:{userId}`：协作者光标和选区的临时状态。
+- `collab:update:queue:{docId}`：房间内待落库的增量队列（可选）。
+
+---
+
+## 8. 接口约定
+
+### 8.1 文档管理接口
+
+本部分沿用现有文档接口，不展开重复说明。
+
+- `POST /api/documents`
+- `GET /api/documents`
+- `GET /api/documents/{id}`
+- `PUT /api/documents/{id}`
+- `DELETE /api/documents/{id}`
+
+### 8.2 协作者接口
+
+- `POST /api/documents/{id}/members`
+- `GET /api/documents/{id}/members`
+- `DELETE /api/documents/{id}/members/{userId}`
+
+### 8.3 版本快照接口
+
+- `GET /api/documents/{id}/versions`
+- `POST /api/documents/{id}/snapshot`
+- `POST /api/documents/{id}/rollback/{versionId}`
+
+### 8.4 WebSocket 协同接口
+
+- `ws://localhost:8080/ws/collaboration?token=<TOKEN>&docId=<DOC_ID>`
+
+#### 8.4.1 连接后事件顺序建议
+
+1. 握手鉴权。
+2. 服务端下发 `sync`。
+3. 客户端回传或请求缺失 update。
+4. 客户端开始发送 `update` 与 `awareness`。
+5. 服务端定时或触发 `save`。
+
+---
+
+## 9. Spring Boot 实现建议
+
+### 9.1 模块划分
 
 #### WebSocket 模块
 
@@ -496,93 +421,64 @@ ws.onopen = () => {
 - `DocumentSnapshotService`
 - `DocumentPermissionService`
 - `DocumentVersionService`
+- `DocumentUpdateLogService`
 
 #### 持久化模块
 
 - `DocumentMapper`
 - `DocumentMemberMapper`
 - `DocumentVersionMapper`
+- `DocumentCollabUpdateMapper`
+- `DocumentCollabSnapshotMapper`
 
-### 5.2 处理流程
+### 9.2 处理流程
 
 #### 握手阶段
 
 1. 解析 `token` 与 `docId`。
 2. 校验用户身份。
-3. 校验当前用户是否有访问权限。
-4. 建立 Session 并加入对应文档房间。
+3. 校验文档权限。
+4. 建立 session 并加入房间。
+5. 记录在线用户信息。
 
 #### 消息处理阶段
 
 1. 解析消息类型。
-2. 根据消息类型执行同步、保存、回滚或状态广播。
-3. 写入 Redis 在线用户集合。
-4. 按策略更新数据库。
+2. 若为 `update`，写入增量日志并广播到房间其他客户端。
+3. 若为 `awareness`，仅更新在线临时状态并广播。
+4. 若为 `save`，触发快照合并与持久化。
+5. 若为 `rollback`，从版本表恢复并通知所有客户端刷新。
+6. 若消息异常，返回 `error` 并记录日志。
 
-#### 状态持久化阶段
+#### 断线处理阶段
 
-1. 接收客户端增量或完整快照。
-2. 合并为最新文档内容。
-3. 写入 `documents.latest_snapshot`。
-4. 在必要时写入 `document_versions`。
+1. 从在线会话与在线用户集合移除该连接。
+2. 清理对应 awareness 状态。
+3. 若需要，保留短暂重连窗口。
+4. 重连成功后执行状态补齐。
 
-### 5.3 关键实现建议
+---
 
-- WebSocket 建议按 `docId` 建房间，避免跨文档消息污染。
-- 增量同步建议使用消息序列号或版本号，减少重复处理。
-- 保存快照建议使用异步任务或节流队列，降低数据库写入压力。
-- 回滚操作建议先加锁，再广播刷新消息，最后释放锁。
-- 在线协作者状态建议保存在 Redis 中，断开时及时清理。
+## 10. 需要继续补充的实现点
 
-## 6. 校验与错误处理
+如果后续要把方案彻底做成 Yjs 标准协同，建议继续补充：
 
-### 6.1 权限校验
+- 前端 Yjs provider 封装。
+- 服务端对 binary update 的兼容。
+- 增量日志的序列号与幂等控制。
+- state vector / diff sync 的协议细节。
+- awareness 过期与节流策略。
+- 自动快照合并与版本清理策略。
+- 离线编辑本地缓存与恢复流程。
 
-- 在进行编辑、删除、邀请成员、回滚版本等操作前，后端必须校验当前用户在该文档下的 `role`。
-- `owner`：拥有所有权限（包括删除文档、修改他人权限）。
-- `editor`：可读写。
-- `viewer`：只读，无法修改内容。
-- `no_access`：无权限访问文档。
+---
 
-### 6.2 常见错误信息
+## 11. 结论
 
-- `文档不存在或已被删除`
-- `无权限执行此操作`
-- `角色类型无效`
-- `版本不存在`
-- `WebSocket 鉴权失败`
-- `文档协同会话已关闭`
+当前项目已经具备“协同编辑基础设施”，但距离完整 Yjs 协同还有补齐空间。建议后续实现按以下顺序推进：
 
-## 7. 安全与优化建议
+1. 先统一协议为 Yjs update + awareness。
+2. 再补增量日志与快照合并。
+3. 最后补异常、重连、离线恢复和性能优化。
 
-1. **Token 鉴权**：WebSocket 建立连接时需严格校验传入的 Token，避免未授权用户加入 Room。
-2. **频率限制与 Debounce**：Spring Boot 协同端在保存快照时，应使用节流（Debounce）策略，如每隔几秒才持久化一次，降低数据库写入压力。
-3. **分布式锁**：当用户请求文档版本回滚时，应锁定该文档的协同更新，等待服务端刷新状态后再放开，防止数据错乱。
-4. **接口安全**：所有协同与业务接口都应通过统一鉴权、权限校验与日志审计进行保护。
-5. **断线重连**：前端应在网络异常时自动重连，并恢复到最新文档状态。
-6. **消息幂等**：服务端应对重复消息做幂等处理，避免重复保存或重复广播。
-
-## 8. 后续可扩展项
-
-- 分享链接模块（通过分享 Token 实现免登录或匿名用户的只读/编辑能力）
-- 操作日志（Operation Log）与详细审计
-- 针对块（Block）的划线与评论功能
-- 文档模板中心
-- 文件夹结构归类
-
-## 9. 附：当前接口清单
-
-| 功能 | 方法 | 路径 | 说明 |
-| --- | --- | --- | --- |
-| 创建文档 | POST | /api/documents | 新建文档 |
-| 文档列表 | GET | /api/documents | 获取我可编辑/只读的文档 |
-| 文档元数据 | GET | /api/documents/{id} | 获取文档基础信息 |
-| 重命名文档 | PUT | /api/documents/{id} | 修改文档标题 |
-| 删除文档 | DELETE | /api/documents/{id} | 逻辑或物理删除文档 |
-| 邀请/修改权限 | POST | /api/documents/{id}/members | 增改协作者权限 |
-| 移除协作者 | DELETE | /api/documents/{id}/members/{userId} | 移除特定用户的协作权限 |
-| 协作者列表 | GET | /api/documents/{id}/members | 查看当前所有协作者 |
-| 版本历史 | GET | /api/documents/{id}/versions | 获取文档快照历史 |
-| 手动保存快照 | POST | /api/documents/{id}/snapshot | 保存当前文档最新状态 |
-| 回滚版本 | POST | /api/documents/{id}/rollback/{versionId} | 回滚至历史版本 |
-| WebSocket 协同 | WS | /ws/collaboration?token=&docId= | 建立实时协同连接 |
+这样能保证文档、前端和后端在同一个协同方案下持续演进。
