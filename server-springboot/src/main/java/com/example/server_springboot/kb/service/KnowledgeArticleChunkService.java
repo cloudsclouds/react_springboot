@@ -9,4 +9,8 @@ public interface KnowledgeArticleChunkService {
   ApiResponse<Map<String, Object>> ingestArticle(Long articleId, Long userId);
 
   ApiResponse<List<KnowledgeChunkSearchResponse>> searchChunks(Long userId, String query, Long articleId, Integer topK);
+
+  ApiResponse<List<KnowledgeChunkSearchResponse>> searchChunksAdvanced(Long userId, String query, Long articleId, Integer topK, boolean useDiagnostics);
+
+  ApiResponse<com.example.server_springboot.kb.dto.KnowledgeRetrievalDiagnosticsResponse> diagnoseRetrieval(Long userId, String query, Long articleId, Integer topK);
 }

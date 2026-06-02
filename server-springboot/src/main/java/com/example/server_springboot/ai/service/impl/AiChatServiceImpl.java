@@ -396,6 +396,8 @@ public class AiChatServiceImpl implements AiChatService {
             .append(citation.getChunkText())
             .append("\n");
       }
+    } else {
+      builder.append("当前知识库中没有检索到足够相关的证据时，请明确说明无法从知识库中确认，不要编造答案。\n");
     }
     builder.append("请回答问题：").append(question);
     return builder.toString();
