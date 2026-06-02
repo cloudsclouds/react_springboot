@@ -57,7 +57,10 @@ export default function KnowledgeBasePage() {
   const savingPromiseRef = useRef(null);
   const editorRef = useRef(null);
   const selectionRangeRef = useRef(null);
+<<<<<<< HEAD
+=======
   const aiAbortControllerRef = useRef(null);
+>>>>>>> e6b7d087e5aa6f0db2ab83ba648163b12fdb9357
   
   /**
    * 过滤文章
@@ -405,6 +408,8 @@ export default function KnowledgeBasePage() {
   }, [aiMenu.visible]);
 
   /**
+<<<<<<< HEAD
+=======
    * 终止 AI 生成
    */
   function handleAbortAiExecute() {
@@ -413,6 +418,7 @@ export default function KnowledgeBasePage() {
   }
 
   /**
+>>>>>>> e6b7d087e5aa6f0db2ab83ba648163b12fdb9357
    * 执行 AI
    */
   async function handleAiExecute() {
@@ -425,6 +431,16 @@ export default function KnowledgeBasePage() {
 
     try {
       const requestId = `req-${Date.now()}`;
+<<<<<<< HEAD
+      const response = await executeEditorAi({
+        articleId: Number(articleDetail.articleId),
+        requestId,
+        entryPoint: 'context-menu',
+        selectedText: aiSelectedText,
+        surroundingContext: JSON.stringify(draftContent || EMPTY_DOC).slice(0, 500),
+        chatInput: aiChatInput.trim(),
+      });
+=======
       const response = await executeEditorAi(
         {
           articleId: Number(articleDetail.articleId),
@@ -436,6 +452,7 @@ export default function KnowledgeBasePage() {
         },
         { signal: abortController.signal },
       );
+>>>>>>> e6b7d087e5aa6f0db2ab83ba648163b12fdb9357
 
       if (!response.ok || !response.data?.success) {
         setErrorMessage(response.data?.message || 'AI 执行失败');
@@ -478,6 +495,10 @@ export default function KnowledgeBasePage() {
       setAiMenu((prev) => ({ ...prev, visible: false }));
       setMessage(`AI 文本处理完成（${resultAction}），请确认后保存`);
     } catch (e) {
+<<<<<<< HEAD
+      setErrorMessage('AI 请求异常，请稍后重试');
+    } finally {
+=======
       if (e?.name === 'AbortError') {
         setMessage('已中断 AI 生成');
       } else {
@@ -485,6 +506,7 @@ export default function KnowledgeBasePage() {
       }
     } finally {
       aiAbortControllerRef.current = null;
+>>>>>>> e6b7d087e5aa6f0db2ab83ba648163b12fdb9357
       setIsAiRunning(false);
     }
   }
@@ -615,7 +637,10 @@ export default function KnowledgeBasePage() {
                     <strong>AI 正在生成中...</strong>
                     <p>请稍候，生成完成后会自动写入编辑器。</p>
                   </div>
+<<<<<<< HEAD
+=======
                   <button type="button" className="secondary-button" onClick={handleAbortAiExecute}>中断生成</button>
+>>>>>>> e6b7d087e5aa6f0db2ab83ba648163b12fdb9357
                 </div>
               </div>
             ) : null}
