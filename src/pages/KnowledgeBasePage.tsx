@@ -32,6 +32,16 @@ function normalizeArticleId(value) {
   return value == null ? null : String(value);
 }
 
+function buildAiRunSummary(meta) {
+  if (!meta) return '';
+  const mode = meta.executionMode ? String(meta.executionMode).toUpperCase() : 'FAST';
+  const route = meta.routeDecision?.primaryIntent || meta.intent || 'unknown';
+  const workerCount = meta.planSummary?.workerCount || 1;
+  const criticScore = typeof meta.criticScore === 'number' ? Number(meta.criticScore).toFixed(2) : '--';
+  const degraded = meta.degraded ? '，已降级返回' : '';
+  return `${mode} 协作 · 路由到 ${route} · ${workerCount} 个 Worker · Critic ${criticScore}${degraded}`;
+}
+
 
 export default function KnowledgeBasePage() {
   const navigate = useNavigate();
@@ -53,14 +63,12 @@ export default function KnowledgeBasePage() {
   const [aiChatInput, setAiChatInput] = useState('');
   const [aiSelectedText, setAiSelectedText] = useState('');
   const [isAiRunning, setIsAiRunning] = useState(false);
+  const [lastAiMeta, setLastAiMeta] = useState(null);
   const autosaveTimerRef = useRef(null);
   const savingPromiseRef = useRef(null);
   const editorRef = useRef(null);
   const selectionRangeRef = useRef(null);
-<<<<<<< HEAD
-=======
   const aiAbortControllerRef = useRef(null);
->>>>>>> e6b7d087e5aa6f0db2ab83ba648163b12fdb9357
   
   /**
    * 过滤文章
@@ -71,6 +79,10 @@ export default function KnowledgeBasePage() {
     if (!q) return articles;
     return articles.filter((article) => `${article.title} ${article.summary}`.toLowerCase().includes(q));
   }, [articles, searchText]);
+
+  const aiRunSummary = useMemo(() => {
+    return buildAiRunSummary(lastAiMeta);
+  }, [lastAiMeta]);
 
   /**
    * 加载文章列表
@@ -408,8 +420,6 @@ export default function KnowledgeBasePage() {
   }, [aiMenu.visible]);
 
   /**
-<<<<<<< HEAD
-=======
    * 终止 AI 生成
    */
   function handleAbortAiExecute() {
@@ -418,7 +428,6 @@ export default function KnowledgeBasePage() {
   }
 
   /**
->>>>>>> e6b7d087e5aa6f0db2ab83ba648163b12fdb9357
    * 执行 AI
    */
   async function handleAiExecute() {
@@ -431,16 +440,6 @@ export default function KnowledgeBasePage() {
 
     try {
       const requestId = `req-${Date.now()}`;
-<<<<<<< HEAD
-      const response = await executeEditorAi({
-        articleId: Number(articleDetail.articleId),
-        requestId,
-        entryPoint: 'context-menu',
-        selectedText: aiSelectedText,
-        surroundingContext: JSON.stringify(draftContent || EMPTY_DOC).slice(0, 500),
-        chatInput: aiChatInput.trim(),
-      });
-=======
       const response = await executeEditorAi(
         {
           articleId: Number(articleDetail.articleId),
@@ -452,7 +451,6 @@ export default function KnowledgeBasePage() {
         },
         { signal: abortController.signal },
       );
->>>>>>> e6b7d087e5aa6f0db2ab83ba648163b12fdb9357
 
       if (!response.ok || !response.data?.success) {
         setErrorMessage(response.data?.message || 'AI 执行失败');
@@ -462,6 +460,9 @@ export default function KnowledgeBasePage() {
       const aiData = response.data?.data;
       const aiText = aiData?.outputText || '';
       const resultAction = aiData?.resultAction || 'previewOnly';
+      const nextMeta = aiData?.meta || null;
+      const nextMetaSummary = buildAiRunSummary(nextMeta);
+      setLastAiMeta(nextMeta);
 
       if (!aiText && resultAction !== 'previewOnly') {
         setErrorMessage('AI 未返回结果');
@@ -469,7 +470,7 @@ export default function KnowledgeBasePage() {
       }
 
       if (resultAction === 'previewOnly') {
-        setMessage(aiText || 'AI 已完成预览建议');
+        setMessage(nextMetaSummary ? `${aiText || 'AI 已完成预览建议'} · ${nextMetaSummary}` : (aiText || 'AI 已完成预览建议'));
         setAiChatInput('');
         setAiMenu((prev) => ({ ...prev, visible: false }));
         return;
@@ -493,12 +494,10 @@ export default function KnowledgeBasePage() {
       }
       setAiChatInput('');
       setAiMenu((prev) => ({ ...prev, visible: false }));
-      setMessage(`AI 文本处理完成（${resultAction}），请确认后保存`);
+      const mode = nextMeta?.executionMode ? String(nextMeta.executionMode).toUpperCase() : 'FAST';
+      const route = nextMeta?.routeDecision?.primaryIntent || aiData?.intent || 'unknown';
+      setMessage(`AI 文本处理完成（${resultAction}，${mode}，${route}），请确认后保存`);
     } catch (e) {
-<<<<<<< HEAD
-      setErrorMessage('AI 请求异常，请稍后重试');
-    } finally {
-=======
       if (e?.name === 'AbortError') {
         setMessage('已中断 AI 生成');
       } else {
@@ -506,7 +505,6 @@ export default function KnowledgeBasePage() {
       }
     } finally {
       aiAbortControllerRef.current = null;
->>>>>>> e6b7d087e5aa6f0db2ab83ba648163b12fdb9357
       setIsAiRunning(false);
     }
   }
@@ -533,6 +531,38 @@ export default function KnowledgeBasePage() {
           {errorMessage ? <span className="kb-error">{errorMessage}</span> : null}
         </div>
       </div>
+
+      {lastAiMeta ? (
+        <section className="kb-ai-meta-card panel">
+          <div className="kb-ai-meta-card__top">
+            <div>
+              <span className="panel-kicker">Agent Orchestration</span>
+              <h3>最近一次 AI 协作</h3>
+            </div>
+            <span className={`kb-ai-meta-card__badge ${lastAiMeta.degraded ? 'is-degraded' : ''}`}>
+              {String(lastAiMeta.executionMode || 'fast').toUpperCase()}
+            </span>
+          </div>
+          <p className="kb-ai-meta-card__summary">{aiRunSummary}</p>
+          <div className="kb-ai-meta-card__grid">
+            <span>TraceId：{lastAiMeta.traceId || '--'}</span>
+            <span>主意图：{lastAiMeta.routeDecision?.primaryIntent || '--'}</span>
+            <span>置信度：{typeof lastAiMeta.routeDecision?.confidence === 'number' ? Number(lastAiMeta.routeDecision.confidence).toFixed(2) : '--'}</span>
+            <span>并行 Worker：{lastAiMeta.planSummary?.parallelizableWorkers ?? 0}</span>
+          </div>
+          {Array.isArray(lastAiMeta.workerStats) && lastAiMeta.workerStats.length > 0 ? (
+            <div className="kb-ai-meta-card__workers">
+              {lastAiMeta.workerStats.map((item) => (
+                <article key={`${item.worker}-${item.latencyMs}`} className="kb-ai-meta-card__worker">
+                  <strong>{item.worker}</strong>
+                  <span>{item.status}</span>
+                  <small>{item.latencyMs} ms / 输出 {item.outputLength ?? 0} 字符</small>
+                </article>
+              ))}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       <div className="kb-layout">
         <aside className="kb-sidebar panel">
@@ -637,10 +667,7 @@ export default function KnowledgeBasePage() {
                     <strong>AI 正在生成中...</strong>
                     <p>请稍候，生成完成后会自动写入编辑器。</p>
                   </div>
-<<<<<<< HEAD
-=======
                   <button type="button" className="secondary-button" onClick={handleAbortAiExecute}>中断生成</button>
->>>>>>> e6b7d087e5aa6f0db2ab83ba648163b12fdb9357
                 </div>
               </div>
             ) : null}
@@ -662,6 +689,7 @@ export default function KnowledgeBasePage() {
                 onChange={(e) => setAiChatInput(e.target.value)}
                 placeholder="请输入需求，例如：请润色这段话"
               />
+              {lastAiMeta ? <div className="kb-ai-context-dialog__hint">上次协作：{aiRunSummary}</div> : null}
               <div className="kb-ai-context-dialog__actions">
                 <button type="button" className="secondary-button" onClick={() => setAiMenu((prev) => ({ ...prev, visible: false }))}>取消</button>
                 <button type="button" className="primary-button" onClick={() => { void handleAiExecute(); }} disabled={isAiRunning || !aiChatInput.trim()}>

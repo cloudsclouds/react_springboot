@@ -3,12 +3,13 @@ package com.example.server_springboot.ai.editor.service.impl;
 import com.example.server_springboot.ai.editor.agent.EditorTaskAgent;
 import com.example.server_springboot.ai.editor.dto.EditorAiExecuteRequest;
 import com.example.server_springboot.ai.editor.dto.EditorAiExecuteResponse;
+import com.example.server_springboot.ai.editor.dto.EditorOrchestrationResult;
 import com.example.server_springboot.ai.editor.dto.EditorAiStreamRequest;
 import com.example.server_springboot.ai.editor.dto.EditorAiStopRequest;
 import com.example.server_springboot.ai.editor.dto.EditorMemoryContext;
 import com.example.server_springboot.ai.editor.entity.KnowledgeArticleOperationLog;
 import com.example.server_springboot.ai.editor.mapper.KnowledgeArticleOperationLogMapper;
-import com.example.server_springboot.ai.editor.router.EditorAgentRouter;
+import com.example.server_springboot.ai.editor.service.EditorAgentOrchestrator;
 import com.example.server_springboot.ai.editor.service.EditorAiService;
 import com.example.server_springboot.ai.editor.service.EditorMemoryService;
 import com.example.server_springboot.dto.ApiResponse;
@@ -34,12 +35,12 @@ public class EditorAiServiceImpl implements EditorAiService {
   private static final String STOP_KEY_PREFIX = "kb:ai:stop:";
   private static final ConcurrentHashMap<String, String> ACTIVE_REQUESTS = new ConcurrentHashMap<>();
 
-  private final EditorAgentRouter router;
   private final KnowledgeArticleMapper articleMapper;
   private final KnowledgeArticleOperationLogMapper logMapper;
   private final StringRedisTemplate redisTemplate;
   private final ObjectMapper objectMapper;
   private final EditorMemoryService editorMemoryService;
+  private final EditorAgentOrchestrator orchestrator;
 
   /**
    * 同步执行编辑器 AI。
@@ -50,14 +51,10 @@ public class EditorAiServiceImpl implements EditorAiService {
   @Override
   public ApiResponse<EditorAiExecuteResponse> execute(EditorAiExecuteRequest request, Long userId) {
     verifyArticle(request.getArticleId(), userId);
-    EditorTaskAgent agent = router.route(request);
-    if (agent == null) {
-      throw new IllegalArgumentException("不支持的编辑器 AI action: " + request.getAction());
-    }
     EditorMemoryContext memoryContext = editorMemoryService.buildContext(userId, request);
-    String output = agent.generate(request, memoryContext);
-    saveLog(userId, request, agent, output, "SUCCESS", null, 0, request.getRequestId());
-    return ApiResponse.success("执行成功", new EditorAiExecuteResponse(agent.intent(), agent.outputType(), output, agent.resultAction(), agent.meta(request)));
+    EditorOrchestrationResult result = orchestrator.run(request, memoryContext);
+    saveLog(userId, request, result.getPrimaryAgent(), result.getResponse().getOutputText(), "SUCCESS", null, 0, request.getRequestId());
+    return ApiResponse.success("执行成功", result.getResponse());
   }
 
   /**
@@ -85,20 +82,59 @@ public class EditorAiServiceImpl implements EditorAiService {
         executeRequest.setSelectedText(request.getSelectedText());
         executeRequest.setSurroundingContext(request.getSurroundingContext());
         executeRequest.setChatInput(request.getChatInput());
-        EditorTaskAgent agent = router.route(executeRequest);
         EditorMemoryContext memoryContext = editorMemoryService.buildContext(userId, executeRequest);
+        EditorOrchestrationResult result = orchestrator.run(executeRequest, memoryContext);
+        EditorTaskAgent agent = result.getPrimaryAgent();
+        Map<String, Object> orchestrationMeta = result.getOrchestrationMeta();
 
         emitter.send(SseEmitter.event().name("message-start").data(json(Map.of("type", "message-start", "requestId", requestId, "articleId", request.getArticleId()))));
-        String output = agent.generate(executeRequest, memoryContext);
+        emitter.send(SseEmitter.event().name("route-selected").data(json(Map.of(
+            "type", "route-selected",
+            "requestId", requestId,
+            "articleId", request.getArticleId(),
+            "routeDecision", orchestrationMeta.get("routeDecision")
+        ))));
+        emitter.send(SseEmitter.event().name("plan-created").data(json(Map.of(
+            "type", "plan-created",
+            "requestId", requestId,
+            "articleId", request.getArticleId(),
+            "executionMode", orchestrationMeta.get("executionMode"),
+            "planSummary", orchestrationMeta.get("planSummary")
+        ))));
         if (isStopped(request.getArticleId(), requestId)) {
-          saveLog(userId, executeRequest, agent, output, "STOPPED", null, 0, requestId);
+          saveLog(userId, executeRequest, agent, result.getResponse().getOutputText(), "STOPPED", null, 0, requestId);
           emitter.send(SseEmitter.event().name("message-stop").data(json(Map.of("type", "message-stop", "requestId", requestId, "articleId", request.getArticleId()))));
           emitter.complete();
           return;
         }
-        emitter.send(SseEmitter.event().name("message-delta").data(json(Map.of("type", "message-delta", "content", output, "requestId", requestId, "articleId", request.getArticleId()))));
-        saveLog(userId, executeRequest, agent, output, "SUCCESS", null, 0, requestId);
-        emitter.send(SseEmitter.event().name("message-end").data(json(Map.of("type", "message-end", "outputText", output, "requestId", requestId, "articleId", request.getArticleId()))));
+        emitter.send(SseEmitter.event().name("critic-result").data(json(Map.of(
+            "type", "critic-result",
+            "requestId", requestId,
+            "articleId", request.getArticleId(),
+            "criticScore", orchestrationMeta.get("criticScore"),
+            "degraded", orchestrationMeta.get("degraded")
+        ))));
+        emitter.send(SseEmitter.event().name("merge-done").data(json(Map.of(
+            "type", "merge-done",
+            "requestId", requestId,
+            "articleId", request.getArticleId(),
+            "workerStats", orchestrationMeta.get("workerStats")
+        ))));
+        emitter.send(SseEmitter.event().name("message-delta").data(json(Map.of(
+            "type", "message-delta",
+            "content", result.getResponse().getOutputText(),
+            "requestId", requestId,
+            "articleId", request.getArticleId()
+        ))));
+        saveLog(userId, executeRequest, agent, result.getResponse().getOutputText(), "SUCCESS", null, 0, requestId);
+        emitter.send(SseEmitter.event().name("message-end").data(json(Map.of(
+            "type", "message-end",
+            "outputText", result.getResponse().getOutputText(),
+            "requestId", requestId,
+            "articleId", request.getArticleId(),
+            "meta", result.getResponse().getMeta(),
+            "resultAction", result.getResponse().getResultAction()
+        ))));
         emitter.complete();
       } catch (Exception e) {
         try {

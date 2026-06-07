@@ -62,7 +62,7 @@ public class IntentDetectEditorTaskAgent implements EditorTaskAgent {
   @Override
   public Map<String, Object> meta(EditorAiExecuteRequest request) {
     return Map.of(
-        "action", request.getAction(),
+        "action", request == null || request.getAction() == null ? "" : request.getAction(),
         "intent", "auto-detect",
         "supportedActions", SUPPORTED_ACTIONS);
   }

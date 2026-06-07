@@ -39,6 +39,6 @@ public class UnknownEditorTaskAgent implements EditorTaskAgent {
 
   @Override
   public Map<String, Object> meta(EditorAiExecuteRequest request) {
-    return Map.of("action", request.getAction(), "intent", "unknown");
+    return Map.of("action", request == null || request.getAction() == null ? "" : request.getAction(), "intent", "unknown");
   }
 }
